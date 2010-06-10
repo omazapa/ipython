@@ -43,8 +43,8 @@ class InteractiveShellFrontend(InteractiveShell):
        self.backgrounded = 0
        self.messages = {}
        #setting clors on trecabacks
-       sys.excepthook = ultratb.ColorTB()
-#       sys.excepthook = ultratb.VerboseTB()
+       #sys.excepthook = ultratb.ColorTB()
+       sys.excepthook = ultratb.VerboseTB()
        self.formattedtb=ultratb.FormattedTB()
    
    def _push_line(self,line):
@@ -197,9 +197,10 @@ class InteractiveShellFrontend(InteractiveShell):
            print omsg.content.data
    
    def print_pyerr(self, err):
-       #print "print_pyerr:\n",omsg
-       print >> sys.stderr, err.etype,':', err.evalue
-       print >> sys.stderr, ''.join(err.traceback)       
+       #I am studing how print a beautyfull message with IPyhton.core.utratb
+       self.CustomTB(err.etype,err.evalue,''.join(err.traceback))
+       #print >> sys.stderr, err.etype,':', err.evalue
+       #print >> sys.stderr, ''.join(err.traceback)       
     
    def handle_pyerr(self, omsg):
        #print "handle_pyerr:\n",omsg

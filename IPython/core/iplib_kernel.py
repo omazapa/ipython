@@ -11,7 +11,7 @@ import traceback
 
 from IPython.utils.session import Session, Message, extract_header
 from IPython.utils import session
-from IPython.core.completer import KernelCompleter
+from IPython.core.completer import IPCompleter
 from IPython.core.iplib import InteractiveShell
 from IPython.core import ultratb
 from IPython.core import hooks
@@ -123,9 +123,10 @@ class InteractiveShellKernel(InteractiveShell):
         
         self.display_hook=DisplayHook(self.session,self.pub_socket)
         #self.InteractiveTB.out_stream=self.stderr
-        
-        #setting our own completer
-        self.completer=KernelCompleter(self,self.user_ns)
+        self.init_readline()
+        #setting our own completer (obsolete)
+        #
+        #self.completer= KernelCompleter(self,self.user_ns)
         self.handlers = {}
         for msg_type in ['execute_request', 'complete_request']:
             self.handlers[msg_type] = getattr(self, msg_type)
@@ -167,9 +168,13 @@ class InteractiveShellKernel(InteractiveShell):
         self.pub_socket.send_json(pyin_msg)
         try:
             #this command run source but it dont raise some exception
-            self.runlines(code)
+            #self.runlines(code)
             
-        except (OverflowError, SyntaxError, ValueError, TypeError, MemoryError):
+            #we dont need compile code here,
+            # because it is complied in frontend before send it
+            #self.user_ns and self.user_global_ns are inherited from InteractiveShell the Mother class
+            exec code in self.user_ns, self.user_global_ns  
+        except :
             result = u'error'
             etype, evalue, tb = sys.exc_info()
             tb = traceback.format_exception(etype, evalue, tb)
@@ -184,9 +189,8 @@ class InteractiveShellKernel(InteractiveShell):
             reply_content = exc_content
         else:
             reply_content = {'status' : 'ok'}
-        
+            
         reply_msg = self.session.msg(u'execute_reply', reply_content, parent)
-
         print>>sys.__stdout__, Message(reply_msg)
         self.reply_socket.send(ident, zmq.SNDMORE)
         self.reply_socket.send_json(reply_msg)
@@ -203,7 +207,11 @@ class InteractiveShellKernel(InteractiveShell):
         print >> sys.__stdout__, completion_msg
 
     def complete(self, msg):
-        return self.completer.complete(msg.content.line, msg.content.text)
+        #return self.completer.complete(msg.content.line, msg.content.text)
+        #we dont need KernelCompleter, we can use IPCompleter object inherited
+        #from InteractiveShell and suppurt magics etc... Omar.
+        return self.Completer.all_completions(msg.content.line)
+
 
     def start(self):
         while True:

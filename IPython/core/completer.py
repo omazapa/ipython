@@ -668,24 +668,7 @@ class IPCompleter(Completer):
             return None
             
 
-class KernelCompleter(IPCompleter):
-    """Kernel-side completion machinery."""
-    def __init__(self,shell, namespace):
-        IPCompleter.__init__(self,shell,namespace,namespace)
-        self.namespace = namespace
-        self.completer = rlcompleter.Completer(namespace)
 
-    def complete(self, line, text):
-        # We'll likely use linel later even if now it's not used for anything
-        matches = []
-        complete = self.completer.complete
-        for state in itertools.count():
-            comp = complete(text, state)
-            if comp is None:
-                break
-            matches.append(comp)
-        return matches
- 
 class ClientCompleter(object):
     """Client-side completion machinery.
 
