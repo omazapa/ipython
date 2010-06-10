@@ -43,8 +43,8 @@ class InteractiveShellFrontend(InteractiveShell):
        self.backgrounded = 0
        self.messages = {}
        #setting clors on trecabacks
-       sys.excepthook = ultratb.ColorTB()
-#       sys.excepthook = ultratb.VerboseTB()
+       #sys.excepthook = ultratb.ColorTB()
+       sys.excepthook = ultratb.VerboseTB()
        self.formattedtb=ultratb.FormattedTB()
    
    def _push_line(self,line):
@@ -197,9 +197,10 @@ class InteractiveShellFrontend(InteractiveShell):
            print omsg.content.data
    
    def print_pyerr(self, err):
-       #print "print_pyerr:\n",omsg
-       print >> sys.stderr, err.etype,':', err.evalue
-       print >> sys.stderr, ''.join(err.traceback)       
+       #I am studing how print a beautyfull message with IPyhton.core.utratb
+       self.CustomTB(err.etype,err.evalue,''.join(err.traceback))
+       #print >> sys.stderr, err.etype,':', err.evalue
+       #print >> sys.stderr, ''.join(err.traceback)       
     
    def handle_pyerr(self, omsg):
        #print "handle_pyerr:\n",omsg
@@ -210,6 +211,7 @@ class InteractiveShellFrontend(InteractiveShell):
        
    def handle_stream(self, omsg):
        #print "handle_stream:\n",omsg
+        
        if omsg.content.name == 'stdout':
            outstream = sys.stdout
        else:
@@ -231,7 +233,7 @@ class InteractiveShellFrontend(InteractiveShell):
            if omsg is None:
                break
            self.handle_output(omsg)
-           #print omsg
+           #print omsg'
 
    def handle_reply(self, rep):
         # Handle any side effects on output channels
@@ -304,7 +306,7 @@ if __name__ == "__main__" :
     sub_conn = connection % (port_base+1)
     
     # Create initial sockets
-    c = zmq.Context()
+    c = zmq.Context(1)
     request_socket = c.socket(zmq.XREQ)
     request_socket.connect(req_conn)
     
