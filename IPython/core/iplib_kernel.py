@@ -120,8 +120,10 @@ class InteractiveShellKernel(InteractiveShell):
         self.stderr = OutStream(self.session, self.pub_socket, u'stderr')
         sys.stdout = self.stdout
         sys.stderr = self.stderr
-        #self.InteractiveTB.out_stream=self.stderr
+        
         self.display_hook=DisplayHook(self.session,self.pub_socket)
+        #self.InteractiveTB.out_stream=self.stderr
+        
         #setting our own completer
         self.completer=KernelCompleter(self,self.user_ns)
         self.handlers = {}
@@ -164,9 +166,11 @@ class InteractiveShellKernel(InteractiveShell):
         pyin_msg = self.session.msg(u'pyin',{u'code':code}, parent=parent)
         self.pub_socket.send_json(pyin_msg)
         try:
-            self.runlines(code, '<zmq-kernel>')
-        except:
-            #result = u'error'
+            #this command run source but it dont raise some exception
+            self.runlines(code)
+            
+        except (OverflowError, SyntaxError, ValueError, TypeError, MemoryError):
+            result = u'error'
             etype, evalue, tb = sys.exc_info()
             tb = traceback.format_exception(etype, evalue, tb)
             exc_content = {
@@ -215,7 +219,7 @@ class InteractiveShellKernel(InteractiveShell):
                 handler(ident, omsg)
          
 if __name__ == "__main__" :
-    c = zmq.Context(1, 1)
+    c = zmq.Context(1)
 
     ip = '127.0.0.1'
     port_base = 5555

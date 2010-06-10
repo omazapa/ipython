@@ -210,6 +210,7 @@ class InteractiveShellFrontend(InteractiveShell):
        
    def handle_stream(self, omsg):
        #print "handle_stream:\n",omsg
+        
        if omsg.content.name == 'stdout':
            outstream = sys.stdout
        else:
@@ -231,7 +232,7 @@ class InteractiveShellFrontend(InteractiveShell):
            if omsg is None:
                break
            self.handle_output(omsg)
-           #print omsg
+           #print omsg'
 
    def handle_reply(self, rep):
         # Handle any side effects on output channels
@@ -304,7 +305,7 @@ if __name__ == "__main__" :
     sub_conn = connection % (port_base+1)
     
     # Create initial sockets
-    c = zmq.Context()
+    c = zmq.Context(1)
     request_socket = c.socket(zmq.XREQ)
     request_socket.connect(req_conn)
     
