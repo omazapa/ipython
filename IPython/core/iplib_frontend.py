@@ -191,7 +191,7 @@ class InteractiveShellFrontend(InteractiveShell):
    def handle_pyout(self, omsg):
        #print "handle_pyout:\n",omsg # dbg
        if omsg.parent_header.session == self.session.session:
-           print "%s%s" % ("Out[?]", omsg.content.data)
+           print "%s%s" % ("Out[N/A]", omsg.content.data)
        else:
            print '[Out from %s]' % omsg.parent_header.username
            print omsg.content.data

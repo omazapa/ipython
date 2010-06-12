@@ -8,6 +8,7 @@ import zmq
 import sys
 import time
 import traceback
+from contextlib import nested
 
 from IPython.utils.session import Session, Message, extract_header
 from IPython.utils import session
@@ -122,6 +123,8 @@ class InteractiveShellKernel(InteractiveShell):
         sys.stderr = self.stderr
         
         self.display_hook=DisplayHook(self.session,self.pub_socket)
+        self.outputcache.__class__.display = self.display_hook
+        self.display_trap = DisplayTrap(self, self.outputcache)
         #self.InteractiveTB.out_stream=self.stderr
         self.init_readline()
         #setting our own completer (obsolete)
@@ -130,6 +133,133 @@ class InteractiveShellKernel(InteractiveShell):
         self.handlers = {}
         for msg_type in ['execute_request', 'complete_request']:
             self.handlers[msg_type] = getattr(self, msg_type)
+            
+    def _runcode(self,code):
+        """This method is a reimplementation of method runcode 
+        from InteractiveShell class to InteractiveShellKernel
+        Execute a code object.
+
+        When an exception occurs, self.showtraceback() is called to display a
+        traceback.
+
+        Return value: a flag indicating whether the code to be run completed
+        successfully:
+
+          - 0: successful execution.
+          - 1: an error occurred.
+        """
+
+        # Set our own excepthook in case the user code tries to call it
+        # directly, so that the IPython crash handler doesn't get triggered
+        #old_excepthook,sys.excepthook = sys.excepthook, self.excepthook
+
+        # we save the original sys.excepthook in the instance, in case config
+        # code (such as magics) needs access to it.
+        #self.sys_excepthook = old_excepthook
+        #outflag = 1  # happens in more places, so it's easier as default
+        self.hooks.pre_runcode_hook()
+        prefiltered_code=self.prefilter_manager.prefilter_lines(code,False)
+        exec code in self.user_global_ns, self.user_ns
+        #sys.excepthook = old_excepthook
+        #    etype,value,tb = sys.exc_info()
+        #else:
+        #    outflag = 0
+        #    if softspace(sys.stdout, 0):
+        #        print
+        # Flush out code object which has been run (and source)
+        self.code_to_run = None
+        #return outflag
+    
+    def _runlines(self,lines,clean=False):
+        """Run a string of one or more lines of source.
+
+        This method is capable of running a string containing multiple source
+        lines, as if they had been entered at the IPython prompt.  Since it
+        exposes IPython's processing machinery, the given strings can contain
+        magic calls (%magic), special shell access (!cmd), etc.
+        """
+
+        if isinstance(lines, (list, tuple)):
+            lines = '\n'.join(lines)
+
+        if clean:
+            lines = self.cleanup_ipy_script(lines)
+
+        # We must start with a clean buffer, in case this is run from an
+        # interactive IPython session (via a magic, for example).
+        self.resetbuffer()
+        lines = lines.splitlines()
+        more = 0
+
+        with nested(self.builtin_trap, self.display_trap):
+            for line in lines:
+                # skip blank lines so we don't mess up the prompt counter, but do
+                # NOT skip even a blank line if we are in a code block (more is
+                # true)
+            
+                if line or more:
+                    # push to raw history, so hist line numbers stay in sync
+                    self.input_hist_raw.append("# " + line + "\n")
+                    prefiltered = self.prefilter_manager.prefilter_lines(line,more)
+                    more = self.push_line(prefiltered)
+                    # IPython's runsource returns None if there was an error
+                    # compiling the code.  This allows us to stop processing right
+                    # away, so the user gets the error message at the right place.
+                    if more is None:
+                        break
+                else:
+                    self.input_hist_raw.append("\n")
+            # final newline in case the input didn't have it, so that the code
+            # actually does get executed
+            if more:
+                self._push_line('\n')
+    
+    def _push_line(self, line):
+        """ Reimplementation of Push a line to the interpreter.
+
+        The line should not have a trailing newline; it may have
+        internal newlines.  The line is appended to a buffer and the
+        interpreter's _runsource() "Reimplemented method too for kernel" method is called with the
+        concatenated contents of the buffer as source.  If this
+        indicates that the command was executed or invalid, the buffer
+        is reset; otherwise, the command is incomplete, and the buffer
+        is left as it was after the line was appended.  The return
+        value is 1 if more input is required, 0 if the line was dealt
+        with in some way (this is the same as runsource()).
+        """
+
+
+        #print 'push line: <%s>' % line  # dbg
+        for subline in line.splitlines():
+            self._autoindent_update(subline)
+        self.buffer.append(line)
+        more = self._runsource('\n'.join(self.buffer), self.filename)
+        if not more:
+            self.resetbuffer()
+        return more
+
+    def _runsource(self, source, filename='<input>', symbol='single'):
+        source=source.encode(self.stdin_encoding)
+        if source[:1] in [' ', '\t']:
+            source = 'if 1:\n%s' % source
+
+        code = self.compile(source,filename,symbol)
+        
+        if code is None:
+            # Case 2
+            return True
+
+        # Case 3
+        # We store the code object so that threaded shells and
+        # custom exception handlers can access all this info if needed.
+        # The source corresponding to this can be obtained from the
+        # buffer attribute as '\n'.join(self.buffer).
+        self.code_to_run = code
+        # now actually execute the code object
+        if self._runcode(code) == 0:
+            return False
+        else:
+            return None
        
     def abort_queue(self):
         while True:
@@ -173,7 +303,12 @@ class InteractiveShellKernel(InteractiveShell):
             #we dont need compile code here,
             # because it is complied in frontend before send it
             #self.user_ns and self.user_global_ns are inherited from InteractiveShell the Mother class
-            exec code in self.user_ns, self.user_global_ns  
+            
+            self.hooks.pre_runcode_hook()
+            #exec code in self.user_ns, self.user_global_ns
+            self._runlines(code)
+            #putcache(code)
+            #self.outputcache.update()
         except :
             result = u'error'
             etype, evalue, tb = sys.exc_info()
