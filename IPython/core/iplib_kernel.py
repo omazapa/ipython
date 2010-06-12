@@ -47,7 +47,7 @@ class OutStream(object):
                 content = {u'name':self.name, u'data':data}
                 msg = self.session.msg(u'stream', content=content,
                                        parent=self.parent_header)
-                print>>sys.__stdout__, Message(msg)
+                #print>>sys.__stdout__,"MESSAGE = ", Message(msg)
                 self.pub_socket.send_json(msg)
                 self._buffer_len = 0
                 self._buffer = []
@@ -98,12 +98,14 @@ class DisplayHook(object):
             return
 
         __builtin__._ = obj
-        msg = self.session.msg(u'pyout', {u'data':repr(obj)},
+        msg = self.session.msg(u'pyout', {u'data':repr(obj),u'index':self.index},
                                parent=self.parent_header)
         self.pub_socket.send_json(msg)
 
     def set_parent(self, parent):
         self.parent_header = extract_header(parent)
+    def set_index(self,index):
+        self.index=index
 
 
 
@@ -281,7 +283,7 @@ class InteractiveShellKernel(InteractiveShell):
     def execute_request(self, ident, parent):
         #send messages for current user
         self.display_hook.set_parent(parent)
-        
+        self.display_hook.set_index(self.outputcache.prompt_count+1)
         try:
             code = parent[u'content'][u'code']
         except:
