@@ -134,7 +134,7 @@ class InteractiveShellKernel(InteractiveShell):
         for msg_type in ['execute_request', 'complete_request']:
             self.handlers[msg_type] = getattr(self, msg_type)
             
-    def _runcode(self,code):
+    def _runcode(self,code_obj):
         """This method is a reimplementation of method runcode 
         from InteractiveShell class to InteractiveShellKernel
         Execute a code object.
@@ -148,29 +148,23 @@ class InteractiveShellKernel(InteractiveShell):
           - 0: successful execution.
           - 1: an error occurred.
         """
-
-        # Set our own excepthook in case the user code tries to call it
-        # directly, so that the IPython crash handler doesn't get triggered
-        #old_excepthook,sys.excepthook = sys.excepthook, self.excepthook
-
-        # we save the original sys.excepthook in the instance, in case config
-        # code (such as magics) needs access to it.
-        #self.sys_excepthook = old_excepthook
-        #outflag = 1  # happens in more places, so it's easier as default
-        self.hooks.pre_runcode_hook()
-        prefiltered_code=self.prefilter_manager.prefilter_lines(code,False)
-        exec code in self.user_global_ns, self.user_ns
-        #sys.excepthook = old_excepthook
-        #    etype,value,tb = sys.exc_info()
-        #else:
-        #    outflag = 0
-        #    if softspace(sys.stdout, 0):
-        #        print
-        # Flush out code object which has been run (and source)
-        self.code_to_run = None
-        #return outflag
-    
-    def _runlines(self,lines,clean=False):
+        old_excepthook,sys.excepthook = sys.excepthook, self.excepthook
+        self.sys_excepthook = old_excepthook
+        try:
+            try:
+                self.hooks.pre_runcode_hook()
+                exec code_obj in self.user_global_ns, self.user_ns
+            finally:
+                # Reset our crash handler in place
+                sys.excepthook = old_excepthook
+        except SystemExit:
+            self.resetbuffer()
+            self.showtraceback(exception_only=True)
+            warn("To exit: use any of 'exit', 'quit', %Exit or Ctrl-D.", level=1)
+        except self.custom_exceptions:
+            self.etype,self.value,self.tb = sys.exc_info()
+            
+    def _runlines(self,lines,clean=True):
         """Run a string of one or more lines of source.
 
         This method is capable of running a string containing multiple source
@@ -184,24 +178,24 @@ class InteractiveShellKernel(InteractiveShell):
 
         if clean:
             lines = self.cleanup_ipy_script(lines)
-
+        
         # We must start with a clean buffer, in case this is run from an
         # interactive IPython session (via a magic, for example).
         self.resetbuffer()
         lines = lines.splitlines()
         more = 0
-
+        
         with nested(self.builtin_trap, self.display_trap):
             for line in lines:
                 # skip blank lines so we don't mess up the prompt counter, but do
                 # NOT skip even a blank line if we are in a code block (more is
                 # true)
-            
+                
                 if line or more:
                     # push to raw history, so hist line numbers stay in sync
                     self.input_hist_raw.append("# " + line + "\n")
                     prefiltered = self.prefilter_manager.prefilter_lines(line,more)
-                    more = self.push_line(prefiltered)
+                    more = self._push_line(prefiltered)
                     # IPython's runsource returns None if there was an error
                     # compiling the code.  This allows us to stop processing right
                     # away, so the user gets the error message at the right place.
@@ -211,8 +205,10 @@ class InteractiveShellKernel(InteractiveShell):
                     self.input_hist_raw.append("\n")
             # final newline in case the input didn't have it, so that the code
             # actually does get executed
+            
             if more:
                 self._push_line('\n')
+                
     
     def _push_line(self, line):
         """ Reimplementation of Push a line to the interpreter.
@@ -242,7 +238,6 @@ class InteractiveShellKernel(InteractiveShell):
         source=source.encode(self.stdin_encoding)
         if source[:1] in [' ', '\t']:
             source = 'if 1:\n%s' % source
-
         code = self.compile(source,filename,symbol)
         
         if code is None:
@@ -298,6 +293,8 @@ class InteractiveShellKernel(InteractiveShell):
         self.pub_socket.send_json(pyin_msg)
         try:
             #this command run source but it dont raise some exception
+            # then a need reimplement some InteractiveShell methods that let me 
+            # raise exc
             #self.runlines(code)
             
             #we dont need compile code here,
@@ -305,10 +302,8 @@ class InteractiveShellKernel(InteractiveShell):
             #self.user_ns and self.user_global_ns are inherited from InteractiveShell the Mother class
             
             self.hooks.pre_runcode_hook()
-            #exec code in self.user_ns, self.user_global_ns
             self._runlines(code)
-            #putcache(code)
-            #self.outputcache.update()
+            
         except :
             result = u'error'
             etype, evalue, tb = sys.exc_info()
