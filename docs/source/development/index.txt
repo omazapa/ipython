@@ -8,12 +8,14 @@ IPython developer's guide
    :maxdepth: 1
 
    contributing.txt
+   gitwash/index.txt
    coding_guide.txt
    doc_guide.txt
    testing.txt
    release.txt
    roadmap.txt
    reorg.txt
+   messaging.txt
    magic_blueprint.txt
    notification_blueprint.txt
    ipgraph.txt
