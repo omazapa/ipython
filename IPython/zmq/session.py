@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import os
 import uuid
 import pprint
@@ -102,18 +103,4 @@ class Session(object):
                 raise
         return Message(msg)
 
-def test_msg2obj():
-    am = dict(x=1)
-    ao = Message(am)
-    assert ao.x == am['x']
 
-    am['y'] = dict(z=1)
-    ao = Message(am)
-    assert ao.y.z == am['y']['z']
-    
-    k1, k2 = 'y', 'z'
-    assert ao[k1][k2] == am[k1][k2]
-    
-    am2 = dict(ao)
-    assert am['x'] == am2['x']
-    assert am['y']['z'] == am2['y']['z']
