@@ -1,34 +1,32 @@
-#!/usr/bin/env python
-"""A simple interactive kernel that talks to a frontend over 0MQ.
-
-Things to do:
-
-* Finish implementing `raw_input`.
-* Implement `set_parent` logic. Right before doing exec, the Kernel should
-  call set_parent on all the PUB objects with the message about to be executed.
-* Implement random port and security key logic.
-* Implement control messages.
-* Implement event loop and poll version.
-"""
+# -*- coding: utf-8 -*-
+# Copyright 2010  Omar Andres Zapata Mesa
+# Copyright 2010  Fernando Perez 
+# Copyright 2010  Brian Granger
 
 import __builtin__
+import zmq
 import sys
 import time
 import traceback
+from contextlib import nested
 
-from code import CommandCompiler
-
-import zmq
-
-from session import Session, Message, extract_header
-from completer import KernelCompleter
+from IPython.utils.session import Session, Message, extract_header
+from IPython.utils import session
+from IPython.core.completer import IPCompleter
+from IPython.core.iplib import InteractiveShell
+from IPython.core import ultratb
+from IPython.core import hooks
+from IPython.core.display_trap import DisplayTrap
+from IPython.core.builtin_trap import BuiltinTrap
+from IPython.utils.io import IOTerm
 
 class OutStream(object):
     """A file like object that publishes the stream to a 0MQ PUB socket."""
 
-    def __init__(self, session, pub_socket, name, max_buffer=200):
+    def __init__(self, session, pub_socket,request_socket, name, max_buffer=200):
         self.session = session
         self.pub_socket = pub_socket
+        self.request_socket = request_socket
         self.name = name
         self._buffer = []
         self._buffer_len = 0
@@ -50,7 +48,7 @@ class OutStream(object):
                 content = {u'name':self.name, u'data':data}
                 msg = self.session.msg(u'stream', content=content,
                                        parent=self.parent_header)
-                print>>sys.__stdout__, Message(msg)
+                #print>>sys.__stdout__,"MESSAGE = ", Message(msg)
                 self.pub_socket.send_json(msg)
                 self._buffer_len = 0
                 self._buffer = []
@@ -62,7 +60,10 @@ class OutStream(object):
         raise IOError('Read not supported on a write only stream.')
 
     def read(self, size=None):
-        raise IOError('Read not supported on a write only stream.')
+        self.request_socket.send(size)   
+        #raise IOError('Read not supported on a write only stream.')
+        raw_input_msg = self.request_socket.recv()
+        return raw_input_msg
 
     readline=read
 
@@ -76,6 +77,7 @@ class OutStream(object):
 
     def _maybe_send(self):
         if '\n' in self._buffer[-1]:
+            self._buffer=self._buffer[0:-1]
             self.flush()
         if self._buffer_len > self.max_buffer:
             self.flush()
@@ -86,6 +88,7 @@ class OutStream(object):
         else:
             for s in sequence:
                 self.write(s)
+                
 
 
 class DisplayHook(object):
@@ -100,52 +103,181 @@ class DisplayHook(object):
             return
 
         __builtin__._ = obj
-        msg = self.session.msg(u'pyout', {u'data':repr(obj)},
+        msg = self.session.msg(u'pyout', {u'data':repr(obj),u'index':self.index},
                                parent=self.parent_header)
         self.pub_socket.send_json(msg)
 
     def set_parent(self, parent):
         self.parent_header = extract_header(parent)
+    def set_index(self,index):
+        self.index=index
 
 
-class RawInput(object):
 
-    def __init__(self, session, socket):
-        self.session = session
-        self.socket = socket
-
-    def __call__(self, prompt=None):
-        msg = self.session.msg(u'raw_input')
-        self.socket.send_json(msg)
-        while True:
-            try:
-                reply = self.socket.recv_json(zmq.NOBLOCK)
-            except zmq.ZMQError, e:
-                if e.errno == zmq.EAGAIN:
-                    pass
-                else:
-                    raise
-            else:
-                break
-        return reply[u'content'][u'data']
-
-
-class Kernel(object):
-
-    def __init__(self, session, reply_socket, pub_socket):
+class InteractiveShellKernel(InteractiveShell):
+    def __init__(self,session, reply_socket, pub_socket,request_socket):
         self.session = session
         self.reply_socket = reply_socket
         self.pub_socket = pub_socket
+        self.request_socket = request_socket
         self.user_ns = {}
         self.history = []
-        self.compiler = CommandCompiler()
-        self.completer = KernelCompleter(self.user_ns)
+        InteractiveShell.__init__(self,user_ns=self.user_ns,user_global_ns=self.user_ns)
         
-        # Build dict of handlers for message types
+        #getting outputs
+        self.stdout = OutStream(self.session, self.pub_socket,self.request_socket, u'stdout')
+        self.stderr = OutStream(self.session, self.pub_socket,self.request_socket, u'stderr')
+        #self.stdin  = OutStream(self.session, self.pub_socket,self.request_socket, u'stdin')
+        sys.stdout = self.stdout
+        sys.stderr = self.stderr
+        
+        self.display_hook=DisplayHook(self.session,self.pub_socket)
+        self.outputcache.__class__.display = self.display_hook
+        self.display_trap = DisplayTrap(self, self.outputcache)
+        #self.InteractiveTB.out_stream=self.stderr
+        self.init_readline()
+        __builtin__.raw_input=self._raw_input
+        #setting our own completer (obsolete)
+        #
+        #self.completer= KernelCompleter(self,self.user_ns)
         self.handlers = {}
-        for msg_type in ['execute_request', 'complete_request']:
+        for msg_type in ['execute_request', 'complete_request','prompt_request']:
             self.handlers[msg_type] = getattr(self, msg_type)
+            
+    def _runcode(self,code_obj):
+        """This method is a reimplementation of method runcode 
+        from InteractiveShell class to InteractiveShellKernel
+        Execute a code object.
 
+        When an exception occurs, self.showtraceback() is called to display a
+        traceback.
+
+        Return value: a flag indicating whether the code to be run completed
+        successfully:
+
+          - 0: successful execution.
+          - 1: an error occurred.
+        """
+        old_excepthook,sys.excepthook = sys.excepthook, self.excepthook
+        self.sys_excepthook = old_excepthook
+        try:
+            try:
+                self.hooks.pre_runcode_hook()
+                exec code_obj in self.user_global_ns, self.user_ns
+            finally:
+                # Reset our crash handler in place
+                sys.excepthook = old_excepthook
+        except SystemExit:
+           self.resetbuffer()
+           self.showtraceback(exception_only=True)
+           warn("To exit: use any of 'exit', 'quit', %Exit or Ctrl-D.", level=1)
+        except self.custom_exceptions:
+            self.etype,self.value,self.tb = sys.exc_info()
+            
+    def _runlines(self,lines,clean=True):
+        """Run a string of one or more lines of source.
+
+        This method is capable of running a string containing multiple source
+        lines, as if they had been entered at the IPython prompt.  Since it
+        exposes IPython's processing machinery, the given strings can contain
+        magic calls (%magic), special shell access (!cmd), etc.
+        """
+
+        if isinstance(lines, (list, tuple)):
+            lines = '\n'.join(lines)
+
+        if clean:
+            lines = self.cleanup_ipy_script(lines)
+        
+        # We must start with a clean buffer, in case this is run from an
+        # interactive IPython session (via a magic, for example).
+        self.resetbuffer()
+        lines = lines.splitlines()
+        more = 0
+        
+        with nested(self.builtin_trap, self.display_trap):
+            for line in lines:
+                # skip blank lines so we don't mess up the prompt counter, but do
+                # NOT skip even a blank line if we are in a code block (more is
+                # true)
+                
+                if line or more:
+                    # push to raw history, so hist line numbers stay in sync
+                    self.input_hist_raw.append("# " + line + "\n")
+                    prefiltered = self.prefilter_manager.prefilter_lines(line,more)
+                    more = self._push_line(prefiltered)
+                    # IPython's runsource returns None if there was an error
+                    # compiling the code.  This allows us to stop processing right
+                    # away, so the user gets the error message at the right place.
+                    if more is None:
+                        break
+                else:
+                    self.input_hist_raw.append("\n")
+            # final newline in case the input didn't have it, so that the code
+            # actually does get executed
+            
+            if more:
+                self._push_line('\n')
+                
+    
+    def _push_line(self, line):
+        """ Reimplementation of Push a line to the interpreter.
+
+        The line should not have a trailing newline; it may have
+        internal newlines.  The line is appended to a buffer and the
+        interpreter's _runsource() "Reimplemented method too for kernel" method is called with the
+        concatenated contents of the buffer as source.  If this
+        indicates that the command was executed or invalid, the buffer
+        is reset; otherwise, the command is incomplete, and the buffer
+        is left as it was after the line was appended.  The return
+        value is 1 if more input is required, 0 if the line was dealt
+        with in some way (this is the same as runsource()).
+        """
+
+
+        #print 'push line: <%s>' % line  # dbg
+        for subline in line.splitlines():
+            self._autoindent_update(subline)
+        self.buffer.append(line)
+        more = self._runsource('\n'.join(self.buffer), self.filename)
+        if not more:
+            self.resetbuffer()
+        return more
+
+    def _runsource(self, source, filename='<input>', symbol='single'):
+        source=source.encode(self.stdin_encoding)
+        if source[:1] in [' ', '\t']:
+            source = 'if 1:\n%s' % source
+        code = self.compile(source,filename,symbol)
+        
+        if code is None:
+            # Case 2
+            return True
+
+        # Case 3
+        # We store the code object so that threaded shells and
+        # custom exception handlers can access all this info if needed.
+        # The source corresponding to this can be obtained from the
+        # buffer attribute as '\n'.join(self.buffer).
+        self.code_to_run = code
+        # now actually execute the code object
+        if self._runcode(code) == 0:
+            return False
+        else:
+            return None
+    
+    def _raw_input(self,message):
+        content = {u'name':'stdin', u'data':message}
+        msg = self.session.msg(u'stream', content=content)
+            #print>>sys.__stdout__,"MESSAGE = ", Message(msg)
+        self.pub_socket.send_json(msg)            
+        #print("raw_input called")
+        self.request_socket.send(message)
+        #print("message was sended")
+        raw_input_msg = self.request_socket.recv()
+        #print("message was recved")
+        return raw_input_msg
+    
     def abort_queue(self):
         while True:
             try:
@@ -156,6 +288,7 @@ class Kernel(object):
             else:
                 assert self.reply_socket.rcvmore(), "Unexpected missing message part."
                 msg = self.reply_socket.recv_json()
+                print "message here :"+msg
             print>>sys.__stdout__, "Aborting:"
             print>>sys.__stdout__, Message(msg)
             msg_type = msg['msg_type']
@@ -169,19 +302,35 @@ class Kernel(object):
             time.sleep(0.1)
 
     def execute_request(self, ident, parent):
+        #send messages for current user
+        self.display_hook.set_parent(parent)
         try:
             code = parent[u'content'][u'code']
+            self.outputcache.prompt_count=self.outputcache.prompt_count+1
+            self.display_hook.set_index(self.outputcache.prompt_count)
         except:
             print>>sys.__stderr__, "Got bad msg: "
             print>>sys.__stderr__, Message(parent)
+            self.outputcache.prompt_count=self.outputcache.prompt_count-1
+            self.display_hook.set_index(self.outputcache.prompt_count)
             return
+        
         pyin_msg = self.session.msg(u'pyin',{u'code':code}, parent=parent)
         self.pub_socket.send_json(pyin_msg)
         try:
-            comp_code = self.compiler(code, '<zmq-kernel>')
-            sys.displayhook.set_parent(parent)
-            exec comp_code in self.user_ns, self.user_ns
-        except:
+            #this command run source but it dont raise some exception
+            # then a need reimplement some InteractiveShell methods that let me 
+            # raise exc
+            #self.runlines(code)
+            
+            #we dont need compile code here,
+            # because it is complied in frontend before send it
+            #self.user_ns and self.user_global_ns are inherited from InteractiveShell the Mother class
+            
+            self.hooks.pre_runcode_hook()
+            self._runlines(code)
+            
+        except :
             result = u'error'
             etype, evalue, tb = sys.exc_info()
             tb = traceback.format_exception(etype, evalue, tb)
@@ -196,12 +345,15 @@ class Kernel(object):
             reply_content = exc_content
         else:
             reply_content = {'status' : 'ok'}
+            
         reply_msg = self.session.msg(u'execute_reply', reply_content, parent)
         print>>sys.__stdout__, Message(reply_msg)
         self.reply_socket.send(ident, zmq.SNDMORE)
         self.reply_socket.send_json(reply_msg)
         if reply_msg['content']['status'] == u'error':
             self.abort_queue()
+            
+        
 
     def complete_request(self, ident, parent):
         matches = {'matches' : self.complete(parent),
@@ -209,9 +361,21 @@ class Kernel(object):
         completion_msg = self.session.send(self.reply_socket, 'complete_reply',
                                            matches, parent, ident)
         print >> sys.__stdout__, completion_msg
-
+    
+    def prompt_request(self,ident,parent):
+            prompt=self.hooks.generate_prompt(False)
+            prompt_msg = self.session.msg(u'prompt',{u'data':prompt}, parent=parent)
+            print(prompt_msg)
+            self.reply_socket.send(ident, zmq.SNDMORE)
+            self.reply_socket.send_json(prompt_msg)
+            #self.session.send(self.reply_socket, 'prompt_reply',)
+    
     def complete(self, msg):
-        return self.completer.complete(msg.content.line, msg.content.text)
+        #return self.completer.complete(msg.content.line, msg.content.text)<-- code
+        #we dont need KernelCompleter, we can use IPCompleter object inherited
+        #from InteractiveShell and suppurt magics etc... Omar.
+        return self.Completer.all_completions(msg.content.line)
+
 
     def start(self):
         while True:
@@ -225,17 +389,17 @@ class Kernel(object):
                 print >> sys.__stderr__, "UNKNOWN MESSAGE TYPE:", omsg
             else:
                 handler(ident, omsg)
-
-
-def main():
-    c = zmq.Context()
+         
+if __name__ == "__main__" :
+    c = zmq.Context(1)
 
     ip = '127.0.0.1'
-    port_base = 5575
+    port_base = 5555
     connection = ('tcp://%s' % ip) + ':%i'
     rep_conn = connection % port_base
     pub_conn = connection % (port_base+1)
-
+    req_conn = connection % (port_base+2)
+    
     print >>sys.__stdout__, "Starting the kernel..."
     print >>sys.__stdout__, "On:",rep_conn, pub_conn
 
@@ -246,25 +410,19 @@ def main():
 
     pub_socket = c.socket(zmq.PUB)
     pub_socket.bind(pub_conn)
+        
+    
+    request_socket = c.socket(zmq.REQ)
+    request_socket.bind(req_conn)
+    
+    #stdout = OutStream(session, pub_socket, u'stdout')
+    #stderr = OutStream(session, pub_socket, u'stderr')
+    #sys.stdout = stdout
+    #sys.stderr = stderr
+    #display_hook = DisplayHook(session, pub_socket)
+    #sys.displayhook = display_hook
 
-    stdout = OutStream(session, pub_socket, u'stdout')
-    stderr = OutStream(session, pub_socket, u'stderr')
-    sys.stdout = stdout
-    sys.stderr = stderr
-
-    display_hook = DisplayHook(session, pub_socket)
-    sys.displayhook = display_hook
-
-    kernel = Kernel(session, reply_socket, pub_socket)
-
-    # For debugging convenience, put sleep and a string in the namespace, so we
-    # have them every time we start.
-    kernel.user_ns['sleep'] = time.sleep
-    kernel.user_ns['s'] = 'Test string'
+    kernel = InteractiveShellKernel(session, reply_socket, pub_socket, request_socket)
     
     print >>sys.__stdout__, "Use Ctrl-\\ (NOT Ctrl-C!) to terminate."
     kernel.start()
-
-
-if __name__ == '__main__':
-    main()
