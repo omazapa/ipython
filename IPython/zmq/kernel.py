@@ -7,6 +7,9 @@ import __builtin__
 import zmq
 import sys
 import time
+import os
+import subprocess
+
 import traceback
 from contextlib import nested
 
@@ -18,7 +21,10 @@ from IPython.core import ultratb
 from IPython.core import hooks
 from IPython.core.display_trap import DisplayTrap
 from IPython.core.builtin_trap import BuiltinTrap
-from IPython.utils.io import IOTerm
+from IPython.utils.io import IOTerm, Term
+from IPython.utils.terminal import set_term_title
+from IPython.frontend.process.killableprocess import Popen
+
 
 class OutStream(object):
     """A file like object that publishes the stream to a 0MQ PUB socket."""
@@ -88,6 +94,12 @@ class OutStream(object):
         else:
             for s in sequence:
                 self.write(s)
+    def fileno(self):
+        if self.name == "stdout":
+            return 1
+        if self.name == "stderr":
+            return 2
+                    
                 
 
 
@@ -128,8 +140,12 @@ class InteractiveShellKernel(InteractiveShell):
         self.stdout = OutStream(self.session, self.pub_socket,self.request_socket, u'stdout')
         self.stderr = OutStream(self.session, self.pub_socket,self.request_socket, u'stderr')
         #self.stdin  = OutStream(self.session, self.pub_socket,self.request_socket, u'stdin')
+        self._orig_stdout = sys.stdout
+        self._orig_stderr = sys.stderr
         sys.stdout = self.stdout
         sys.stderr = self.stderr
+        self.system=self._system
+        
         
         self.display_hook=DisplayHook(self.session,self.pub_socket)
         self.outputcache.__class__.display = self.display_hook
@@ -137,13 +153,27 @@ class InteractiveShellKernel(InteractiveShell):
         #self.InteractiveTB.out_stream=self.stderr
         self.init_readline()
         __builtin__.raw_input=self._raw_input
-        #setting our own completer (obsolete)
-        #
-        #self.completer= KernelCompleter(self,self.user_ns)
         self.handlers = {}
         for msg_type in ['execute_request', 'complete_request','prompt_request']:
             self.handlers[msg_type] = getattr(self, msg_type)
-            
+       
+    def _system(self, cmd):
+        """Reimplementation of system, Make a system call, using IPython."""
+        self.pipe=Popen(cmd, shell=True, stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+        stdout_output=self.pipe.stdout.read()
+        stderr_output=self.pipe.stderr.read()
+        
+        if stdout_output.__len__() != 0 :
+            for stdout in stdout_output.split('\n'):
+                if stdout.__len__() != 0:
+                    print >> self.stdout,stdout
+        
+        if stderr_output.__len__() != 0 :   
+            for errout in stderr_output.split('\n'):
+                if stderr.__len__() != 0:    
+                    print >> self.stderr,errout
+        
+    
     def _runcode(self,code_obj):
         """This method is a reimplementation of method runcode 
         from InteractiveShell class to InteractiveShellKernel

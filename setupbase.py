@@ -127,6 +127,7 @@ def find_packages():
     add_package(packages, 'testing', tests=True)
     add_package(packages, 'testing.plugin', tests=False)
     add_package(packages, 'utils', tests=True)
+    add_package(packages, 'zmq',tests=True)
     return packages
 
 #---------------------------------------------------------------------------
