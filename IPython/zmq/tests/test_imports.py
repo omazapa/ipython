@@ -3,8 +3,9 @@
 # encoding: utf-8
 import nose.tools as nt
 
-def test_import_zmq():
-    import zmq
+def test_import_zmq():  
+        import zmq
+    
 
 def test_import_session():
     from IPython.zmq import session

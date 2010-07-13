@@ -405,6 +405,7 @@ class InteractiveShellKernel(InteractiveShell):
         #we dont need KernelCompleter, we can use IPCompleter object inherited
         #from InteractiveShell and suppurt magics etc... Omar.
         return self.Completer.all_completions(msg.content.line)
+        
 
 
     def start(self):
@@ -419,6 +420,18 @@ class InteractiveShellKernel(InteractiveShell):
                 print >> sys.__stderr__, "UNKNOWN MESSAGE TYPE:", omsg
             else:
                 handler(ident, omsg)
+                
+    def test(self):
+        ident = self.reply_socket.recv()
+        assert self.reply_socket.rcvmore(), "Unexpected missing message part."
+        msg = self.reply_socket.recv_json()
+        omsg = Message(msg)
+        print>>sys.__stdout__, omsg
+        handler = self.handlers.get(omsg.msg_type, None)
+        if handler is None:
+            print >> sys.__stderr__, "UNKNOWN MESSAGE TYPE:", omsg
+        else:
+            handler(ident, omsg) 
          
 if __name__ == "__main__" :
     c = zmq.Context(1)
@@ -456,3 +469,4 @@ if __name__ == "__main__" :
     
     print >>sys.__stdout__, "Use Ctrl-\\ (NOT Ctrl-C!) to terminate."
     kernel.start()
+    #kernel.test()

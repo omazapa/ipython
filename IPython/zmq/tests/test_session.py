@@ -28,13 +28,13 @@ def test_msg2obj():
             
     am['y'] = dict(z=1)
     ao = Message(am)
-    assert ao.y.z == am['y']['z']
+    nt.assert_equals(ao.y.z,am['y']['z'])
          
     k1, k2 = 'y', 'z'
-    assert ao[k1][k2] == am[k1][k2]
+    nt.assert_equals(ao[k1][k2], am[k1][k2])
           
     am2 = dict(ao)
-    assert am['x'] == am2['x']
-    assert am['y']['z'] == am2['y']['z']
+    nt.assert_equals(am['x'], am2['x'])
+    nt.assert_equals(am['y']['z'], am2['y']['z'])
     
     

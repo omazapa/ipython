@@ -113,12 +113,12 @@ class InteractiveShellFrontend(InteractiveShell):
          
         if self.has_readline:
             self.readline_startup_hook(self.pre_readline)
-        # exit_now is set by a call to %Exit or %Quit, through the
+        ## exit_now is set by a call to %Exit or %Quit, through the
         # ask_exit callback.
         
         while not self.exit_now:
             #buffer=[]
-            self.hooks.pre_prompt_hook()
+            #self.hooks.pre_prompt_hook()
             if more:
                 try:
                     prompt = self.hooks.generate_prompt(True)
@@ -308,7 +308,14 @@ class InteractiveShellFrontend(InteractiveShell):
            # We exited without hearing back from the kernel!
            print >> sys.stderr, 'ERROR!!! kernel never got back to us!!!'
     
-      
+   def test(self,code):
+       omsg = self.session.send(self.request_socket,'execute_request', dict(code=code))
+       self.messages[omsg.header.msg_id] = omsg
+       #print "waiting recieve"
+       rep = self.request_socket.recv_json()
+       self.recv_reply()
+       return rep
+     
 if __name__ == "__main__" :
     # Defaults
     #ip = '192.168.2.109'
