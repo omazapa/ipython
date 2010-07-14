@@ -72,7 +72,9 @@ def test_ipython_zmq():
         sess = Session()  
         frontend=InteractiveShellFrontend('<zmq-console>',sess,request_socket=request_socket,subscribe_socket=sub_socket,reply_socket=reply_socket)
         code="print 'hello'"
-        reply_msg, pyin_msg, output_msg = frontend.test(code)
+        reply_msg = frontend.test(code)
+        pyin_msg = frontend.test_get_output()
+        output_msg = frontend.test_get_output()
         #print " output = \n",output_msg
         #print >> orig_stdout,"\n\n\nreply_msg = ",reply_msg,'\n\n\n' 
         #print >> orig_stdout,"\n\n\npyin_msg = ",pyin_msg,'\n\n\n'

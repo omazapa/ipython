@@ -8,7 +8,6 @@ import __builtin__
 from contextlib import nested
 import time
 import sys
-#import readline
 import uuid
 import cPickle as pickle
 import code
@@ -43,14 +42,9 @@ class InteractiveShellFrontend(InteractiveShell):
        self.reply_socket = reply_socket
        self.backgrounded = 0
        self.messages = {}
-       #setting clors on trecabacks
-       #sys.excepthook = ultratb.ColorTB()
        sys.excepthook = ultratb.VerboseTB()
        self.formattedtb=ultratb.FormattedTB()
        prompt_msg=self.session.msg('prompt_request')
-       #self.request_socket.send(prompt_msg)
-       #self.session.send(self.request_socket,'prompt_request')
-       #msg=self.session.recv(self.request_socket);
        
    
    def _push_line(self,line):
@@ -80,16 +74,13 @@ class InteractiveShellFrontend(InteractiveShell):
        except (OverflowError, SyntaxError, ValueError, TypeError, MemoryError):
             # Case 1
            self.showsyntaxerror(filename)
-           #self.buffer_lines[:]=[]
            return None
 
        if code is None:
             # Case 2
            return True
        else:
-           #print self.buffer_lines
            self.runcode(self.buffer_lines)
-           #self.runlines(self.buffer_lines)
            self.buffer_lines[:]=[]
            return False
     
@@ -98,8 +89,6 @@ class InteractiveShellFrontend(InteractiveShell):
            but it dont run code, just send message to IPython Kernel and wait replies
            this method init a mainloop 
            """
-        #print self.lsmagic()
-        # batch run -> do not interact        
         if self.exit_now:
             return
 
@@ -109,16 +98,13 @@ class InteractiveShellFrontend(InteractiveShell):
         #    self.show_banner()
 
         more = 0
-        #__builtin__.__dict__['__IPYTHON__active'] += 1
-         
+     
         if self.has_readline:
             self.readline_startup_hook(self.pre_readline)
         ## exit_now is set by a call to %Exit or %Quit, through the
         # ask_exit callback.
         
         while not self.exit_now:
-            #buffer=[]
-            #self.hooks.pre_prompt_hook()
             if more:
                 try:
                     prompt = self.hooks.generate_prompt(True)
@@ -135,8 +121,7 @@ class InteractiveShellFrontend(InteractiveShell):
             try:
                 line = self.raw_input(prompt, more)
                 line = self.prefilter_manager.prefilter_lines(line,more)
-                #print line
-                #buffer.append(line)
+        
                 if self.exit_now:
                     # quick exit on sys.std[in|out] close
                     break
@@ -177,12 +162,7 @@ class InteractiveShellFrontend(InteractiveShell):
                 if (self.SyntaxTB.last_syntax_error and
                     self.autoedit_syntax):
                     self.edit_syntax_error()
-            #print self.buffer_lines  
-            #self.runcode(buffer)
-              
-        # We are off again...
-        #__builtin__.__dict__['__IPYTHON__active'] -= 1
-
+ 
         # Turn off the exit flag, so the mainloop can be restarted if desired
         self.exit_now = False
         
@@ -205,9 +185,7 @@ class InteractiveShellFrontend(InteractiveShell):
    def print_pyerr(self, err):
        #I am studing how print a beautyfull message with IPyhton.core.utratb
        self.CustomTB(err.etype,err.evalue,''.join(err.traceback))
-       #print >> sys.stderr, err.etype,':', err.evalue
-       #print >> sys.stderr, ''.join(err.traceback)       
-    
+       
    def handle_pyerr(self, omsg):
        #print "handle_pyerr:\n",omsg
        if omsg.parent_header.session == self.session.session:
@@ -229,8 +207,7 @@ class InteractiveShellFrontend(InteractiveShell):
            raw_output=raw_input(promt_msg)    
            self.reply_socket.send(raw_output)
            
-       #print >> outstream, omsg.content.data
-
+       
    def handle_output(self, omsg):
        #print "handle_output:\n",omsg
        handler = self.handlers.get(omsg.msg_type, None)
@@ -248,8 +225,7 @@ class InteractiveShellFrontend(InteractiveShell):
            if omsg is None:
                break
            self.handle_output(omsg)
-           #print omsg'
-
+       
    def handle_reply(self, rep):
         # Handle any side effects on output channels
         self.recv_output()
@@ -309,23 +285,30 @@ class InteractiveShellFrontend(InteractiveShell):
            print >> sys.stderr, 'ERROR!!! kernel never got back to us!!!'
     
    def test(self,code):
+       """ this method was designed to test code with kernel in a thread.
+       code content python or ipython code to run and the reply status was recived 
+       here.
+       to get all others outputs see the method test_get_output 
+       """
        omsg = self.session.send(self.request_socket,'execute_request', dict(code=code))
        self.messages[omsg.header.msg_id] = omsg
        #print "waiting recieve"
        rep_msg = self.request_socket.recv_json()
        #self.recv_reply()
-       pyin_msg = self.session.recv(self.sub_socket)
+       return rep_msg
+       
+   def test_get_output(self):
+       """method que get output from kernels when you send a request
+       outputs can be pyin, pyerr or stream.
+       see tests file with a example
+       """
        output_msg = self.session.recv(self.sub_socket)
-       #print type(omsg)
-       #print ""rep,omsg
-       return rep_msg,pyin_msg,output_msg
+       return output_msg
        
 if __name__ == "__main__" :
     # Defaults
-    #ip = '192.168.2.109'
     import zmq
     ip = '127.0.0.1'
-    #ip = '99.146.222.252'
     port_base = 5555
     connection = ('tcp://%s' % ip) + ':%i'
     req_conn = connection % port_base
