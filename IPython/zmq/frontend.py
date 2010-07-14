@@ -312,10 +312,14 @@ class InteractiveShellFrontend(InteractiveShell):
        omsg = self.session.send(self.request_socket,'execute_request', dict(code=code))
        self.messages[omsg.header.msg_id] = omsg
        #print "waiting recieve"
-       rep = self.request_socket.recv_json()
-       self.recv_reply()
-       return rep
-     
+       rep_msg = self.request_socket.recv_json()
+       #self.recv_reply()
+       pyin_msg = self.session.recv(self.sub_socket)
+       output_msg = self.session.recv(self.sub_socket)
+       #print type(omsg)
+       #print ""rep,omsg
+       return rep_msg,pyin_msg,output_msg
+       
 if __name__ == "__main__" :
     # Defaults
     #ip = '192.168.2.109'

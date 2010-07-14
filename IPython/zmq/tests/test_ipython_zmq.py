@@ -45,7 +45,7 @@ def test_ipython_zmq():
         thread=Thread(target=kernel)
         thread.start()
         #wait that kernel start
-        time.sleep(2)
+        time.sleep(5)
         
         ip = '127.0.0.1'
         print >> orig_stdout, ip
@@ -72,7 +72,17 @@ def test_ipython_zmq():
         sess = Session()  
         frontend=InteractiveShellFrontend('<zmq-console>',sess,request_socket=request_socket,subscribe_socket=sub_socket,reply_socket=reply_socket)
         code="print 'hello'"
-        output=frontend.test(code)
-        
+        reply_msg, pyin_msg, output_msg = frontend.test(code)
+        #print " output = \n",output_msg
+        #print >> orig_stdout,"\n\n\nreply_msg = ",reply_msg,'\n\n\n' 
+        #print >> orig_stdout,"\n\n\npyin_msg = ",pyin_msg,'\n\n\n'
+        #print >> orig_stdout,"\n\n\noutput_msg = ",output_msg,'\n\n\n'
+
         #test if status of message is ok using nose.tools
-        nt.assert_equals(output['content']['status' ],'ok')
+        nt.assert_equals(reply_msg['content']['status'],'ok')
+        nt.assert_equals(pyin_msg['content']['code'],code)
+        nt.assert_equals(output_msg['content']['data'],'hello')
+
+if __name__ == "__main__" :
+        test_ipython_zmq()
+
