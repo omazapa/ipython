@@ -20,16 +20,20 @@ from IPython.utils.traitlets import (
     Int, Str, CBool, CaselessStrEnum, Enum, List, Unicode
 )
 
+
 class InteractiveShellFrontend(InteractiveShell):
    """ this class uses some meny features of Interactive shell,
        but it dont run code really, just let you interactue like ipython prompt
        and send messages to ipython kernel
     
    """
+   #explanation:
+   #if I inherited from InteractiveShell I have support to Colors in outputs, History, prompt indentation
+   #and I can use too many features in the new frontend whithout run code here.
+   
    def __init__(self,filename="<ipython_frontent>", session = session, request_socket=None, subscribe_socket=None,reply_socket=None):
        InteractiveShell.__init__(self)
        self.buffer_lines=[]
-       #self.display_banner = CBool(False)
        
        self.completer=completer.ClientCompleter(self,session,request_socket)
        self.Completer=self.completer
@@ -44,7 +48,11 @@ class InteractiveShellFrontend(InteractiveShell):
        self.messages = {}
        sys.excepthook = ultratb.VerboseTB()
        self.formattedtb=ultratb.FormattedTB()
-       prompt_msg=self.session.msg('prompt_request')
+       __builtin__.__dict__['__IPYTHON__active'] = 1
+       self.push_line=self._push_line
+       self.runsource=self._runsource
+       self.runcode=self._runcode
+       
        
    
    def _push_line(self,line):
@@ -83,88 +91,6 @@ class InteractiveShellFrontend(InteractiveShell):
            self.runcode(self.buffer_lines)
            self.buffer_lines[:]=[]
            return False
-    
-   def prompt(self):
-        """IPython console frontend that  let you have all ipython prompt facilities
-           but it dont run code, just send message to IPython Kernel and wait replies
-           this method init a mainloop 
-           """
-        if self.exit_now:
-            return
-
-        #if self.display_banner is None:
-        #    display_banner = self.display_banner
-        #if display_banner:
-        #    self.show_banner()
-
-        more = 0
-     
-        if self.has_readline:
-            self.readline_startup_hook(self.pre_readline)
-        ## exit_now is set by a call to %Exit or %Quit, through the
-        # ask_exit callback.
-        
-        while not self.exit_now:
-            if more:
-                try:
-                    prompt = self.hooks.generate_prompt(True)
-                except:
-                    self.showtraceback()
-                if self.autoindent:
-                    self.rl_do_indent = True
-                    
-            else:
-                try:
-                    prompt = self.hooks.generate_prompt(False)
-                except:
-                    self.showtraceback()
-            try:
-                line = self.raw_input(prompt, more)
-                line = self.prefilter_manager.prefilter_lines(line,more)
-        
-                if self.exit_now:
-                    # quick exit on sys.std[in|out] close
-                    break
-                if self.autoindent:
-                    self.rl_do_indent = False
-                    
-            except KeyboardInterrupt:
-                #double-guard against keyboardinterrupts during kbdint handling
-                try:
-                    self.write('\nKeyboardInterrupt\n')
-                    self.resetbuffer()
-                    # keep cache in sync with the prompt counter:
-                    self.outputcache.prompt_count -= 1
-    
-                    if self.autoindent:
-                        self.indent_current_nsp = 0
-                    more = 0
-                except KeyboardInterrupt:
-                    pass
-            except EOFError:
-                if self.autoindent:
-                    self.rl_do_indent = False
-                    if self.has_readline:
-                        self.readline_startup_hook(None)
-                self.write('\n')
-                self.exit()
-            except bdb.BdbQuit:
-                warn('The Python debugger has exited with a BdbQuit exception.\n'
-                     'Because of how pdb handles the stack, it is impossible\n'
-                     'for IPython to properly format this particular exception.\n'
-                     'IPython will resume normal operation.')
-            except:
-                # exceptions here are VERY RARE, but they can be triggered
-                # asynchronously by signal handlers, for example.
-                self.showtraceback()
-            else:
-                more = self._push_line(line)
-                if (self.SyntaxTB.last_syntax_error and
-                    self.autoedit_syntax):
-                    self.edit_syntax_error()
- 
-        # Turn off the exit flag, so the mainloop can be restarted if desired
-        self.exit_now = False
         
    def handle_pyin(self, omsg):
        #print "handle_pyin:\n",omsg
@@ -247,7 +173,7 @@ class InteractiveShellFrontend(InteractiveShell):
         self.handle_reply(rep)
         return rep
 
-   def runcode(self, code):
+   def _runcode(self, code):
        # We can't pickle code objects, so fetch the actual source
        
        src = '\n'.join(self.buffer_lines)
@@ -330,4 +256,4 @@ if __name__ == "__main__" :
     sess = session.Session()
     
     frontend=InteractiveShellFrontend('<zmq-console>',sess,request_socket=request_socket,subscribe_socket=sub_socket,reply_socket=reply_socket)
-    frontend.prompt()
+    frontend.interact()

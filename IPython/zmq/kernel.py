@@ -144,15 +144,20 @@ class InteractiveShellKernel(InteractiveShell):
         self._orig_stderr = sys.stderr
         sys.stdout = self.stdout
         sys.stderr = self.stderr
-        self.system=self._system
         
         
-        self.display_hook=DisplayHook(self.session,self.pub_socket)
+        self.runcode = self._runcode
+        self.push_line = self._push_line
+        self.system = self._system
+        self.interact = self._interact
+        __builtin__.raw_input = self._raw_input
+        
+        self.display_hook = DisplayHook(self.session,self.pub_socket)
         self.outputcache.__class__.display = self.display_hook
         self.display_trap = DisplayTrap(self, self.outputcache)
         #self.InteractiveTB.out_stream=self.stderr
         self.init_readline()
-        __builtin__.raw_input=self._raw_input
+        
         self.handlers = {}
         for msg_type in ['execute_request', 'complete_request','prompt_request']:
             self.handlers[msg_type] = getattr(self, msg_type)
@@ -169,9 +174,9 @@ class InteractiveShellKernel(InteractiveShell):
                     print >> self.stdout,stdout
         
         if stderr_output.__len__() != 0 :   
-            for errout in stderr_output.split('\n'):
+            for stderr in stderr_output.split('\n'):
                 if stderr.__len__() != 0:    
-                    print >> self.stderr,errout
+                    print >> self.stderr,stderr
         
     
     def _runcode(self,code_obj):
@@ -407,7 +412,7 @@ class InteractiveShellKernel(InteractiveShell):
         return self.Completer.all_completions(msg.content.line)
         
 
-    def interact(self):
+    def _interact(self):
         ident = self.reply_socket.recv()
         assert self.reply_socket.rcvmore(), "Unexpected missing message part."
         msg = self.reply_socket.recv_json()
