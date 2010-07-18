@@ -284,23 +284,20 @@ class InteractiveShellFrontend(InteractiveShell):
            # We exited without hearing back from the kernel!
            print >> sys.stderr, 'ERROR!!! kernel never got back to us!!!'
     
-   def test(self,code):
-       """ this method was designed to test code with kernel in a thread.
+   def send_noninteractive_request(self,code):
+       """ this method was designed to send request code in non interactive mode.
        code content python or ipython code to run and the reply status was recived 
        here.
-       to get all others outputs see the method test_get_output 
+       to get all others outputs see the method recv_request_output 
        """
        omsg = self.session.send(self.request_socket,'execute_request', dict(code=code))
        self.messages[omsg.header.msg_id] = omsg
-       #print "waiting recieve"
        rep_msg = self.request_socket.recv_json()
-       #self.recv_reply()
        return rep_msg
        
-   def test_get_output(self):
-       """method que get output from kernels when you send a request
+   def recv_noninteractive_reply(self):
+       """method that recv output from kernels when you send a request in non interactive mode
        outputs can be pyin, pyerr or stream.
-       see tests file with a example
        """
        output_msg = self.session.recv(self.sub_socket)
        return output_msg

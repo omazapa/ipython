@@ -407,21 +407,7 @@ class InteractiveShellKernel(InteractiveShell):
         return self.Completer.all_completions(msg.content.line)
         
 
-
-    def start(self):
-        while True:
-            ident = self.reply_socket.recv()
-            assert self.reply_socket.rcvmore(), "Unexpected missing message part."
-            msg = self.reply_socket.recv_json()
-            omsg = Message(msg)
-            print>>sys.__stdout__, omsg
-            handler = self.handlers.get(omsg.msg_type, None)
-            if handler is None:
-                print >> sys.__stderr__, "UNKNOWN MESSAGE TYPE:", omsg
-            else:
-                handler(ident, omsg)
-                
-    def test(self):
+    def interact(self):
         ident = self.reply_socket.recv()
         assert self.reply_socket.rcvmore(), "Unexpected missing message part."
         msg = self.reply_socket.recv_json()
@@ -431,7 +417,15 @@ class InteractiveShellKernel(InteractiveShell):
         if handler is None:
             print >> sys.__stderr__, "UNKNOWN MESSAGE TYPE:", omsg
         else:
-            handler(ident, omsg) 
+            handler(ident, omsg)    
+      
+            
+
+    def start(self):
+        while True:
+            self.interact()
+            
+        
          
 if __name__ == "__main__" :
     c = zmq.Context(1)
