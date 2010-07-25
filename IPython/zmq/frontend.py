@@ -33,14 +33,14 @@ class InteractiveShellFrontend(InteractiveShell):
    #if I inherited from InteractiveShell I have support to Colors in outputs, History, prompt indentation
    #and I can use too many features in the new frontend whithout run code here.
    
-   def __init__(self,filename="<ipython_frontent>", session = session, request_socket=None, subscribe_socket=None,reply_socket=None):
+   def __init__(self,filename = "<ipython_frontent>", session = session, request_socket = None, subscribe_socket = None,reply_socket = None):
        InteractiveShell.__init__(self)
        self.buffer_lines=[]
        
-       self.completer=completer.ClientCompleter(self,session,request_socket)
-       self.Completer=self.completer
+       self.completer = completer.ClientCompleter(self,session,request_socket)
+       self.Completer = self.completer
        self.handlers = {}
-       for msg_type in ['pyin', 'pyout', 'pyerr', 'stream','prompt']:
+       for msg_type in ['pyin', 'pyout', 'pyerr', 'stream']:
            self.handlers[msg_type] = getattr(self, 'handle_%s' % msg_type)
        self.session = session
        self.request_socket = request_socket
@@ -49,14 +49,17 @@ class InteractiveShellFrontend(InteractiveShell):
        self.backgrounded = 0
        self.messages = {}
        sys.excepthook = ultratb.VerboseTB()
-       self.formattedtb=ultratb.FormattedTB()
+       self.formattedtb = ultratb.FormattedTB()
        __builtin__.__dict__['__IPYTHON__active'] = 1
-       self.push_line=self._push_line
-       self.runsource=self._runsource
+       self.push_line = self._push_line
+       self.runsource = self._runsource
        self.runcode=self._runcode
        #when start frontend get kernel id
-       self.kernel_pid=None
+       self.kernel_pid = None
        self.get_kernel_pid()
+       #self.prompt = 0
+       
+       self.outputcache.prompt_count = self.get_prompt()  
        #this is a experimental code to trap KeyboardInterrupt in bucles
        
    def _push_line(self,line):
@@ -69,6 +72,7 @@ class InteractiveShellFrontend(InteractiveShell):
        more = self._runsource('\n'.join(self.buffer_lines), self.filename)
        
        if more == None:
+           self.outputcache.prompt_count = self.get_prompt()
            self.buffer_lines[:]=[]
        return more
    
@@ -92,6 +96,7 @@ class InteractiveShellFrontend(InteractiveShell):
             # Case 2
            return True
        else:
+           self.outputcache.prompt_count = self.get_prompt()
            self.runcode(self.buffer_lines)
            self.buffer_lines[:]=[]
            return False
@@ -144,16 +149,7 @@ class InteractiveShellFrontend(InteractiveShell):
        #print "handle_output:\n",omsg
        handler = self.handlers.get(omsg.msg_type, None)
        if handler is not None:
-           handler(omsg)
-           
-   def handle_prompt(self,omsg):
-           pass
-       
-       
-   #def handle_kernel_pid(self,omsg):
-       #print("in handel kernel")
-       #self.kernel_pid=int(omsg['pid'])
-       
+           handler(omsg)    
 
    def recv_output(self):
        #print "recv_output:"
@@ -200,6 +196,23 @@ class InteractiveShellFrontend(InteractiveShell):
                self.kernel_pid=rep['content']['pid']
                break
            time.sleep(0.05)
+        return self.kernel_pid
+        
+   def get_prompt(self):
+       prompt_msg = {'current':self.outputcache.prompt_count }
+       omsg = self.session.send(self.request_socket,'prompt_request',prompt_msg)
+       while True:
+           #print "waiting recieve"
+           rep = self.session.recv(self.request_socket)
+           
+           if rep is not None:
+               #print(rep)    
+               self.prompt=int(rep['content']['prompt'])
+               break
+           time.sleep(0.05)
+       return self.prompt
+
+        
 
    def _runcode(self, code):
        # We can't pickle code objects, so fetch the actual source
@@ -216,10 +229,14 @@ class InteractiveShellFrontend(InteractiveShell):
                time.sleep(0.05)
        # Send code execution message to kernel
        #print "sending message"
+       code=dict(code=src)
+       print "sending = ",self.outputcache.prompt_count
+       code['prompt'] = self.outputcache.prompt_count
+       #print code, type(code)
        omsg = self.session.send(self.request_socket,
-                                 'execute_request', dict(code=src))
+                                 'execute_request', code)
        self.messages[omsg.header.msg_id] = omsg
-        
+       
         # Fake asynchronicity by letting the user put ';' at the end of the line
        if src.endswith(';'):
            self.backgrounded += 1

@@ -154,10 +154,11 @@ class InteractiveShellKernel(InteractiveShell):
         
         self.display_hook = DisplayHook(self.session,self.pub_socket)
         self.outputcache.__class__.display = self.display_hook
-        self.display_trap = DisplayTrap(self, self.outputcache)
+        #self.display_trap = DisplayTrap(self, self.outputcache)
         #self.InteractiveTB.out_stream=self.stderr
         self.init_readline()
-        
+        self.outputcache.promt_count = 1
+        self.prompt_bk = self.outputcache.promt_count
         self.kernel_pid=os.getpid()
         
         self.handlers = {}
@@ -340,11 +341,15 @@ class InteractiveShellKernel(InteractiveShell):
 
     def execute_request(self, ident, parent):
         #send messages for current user
-        self.display_hook.set_parent(parent)
+        #self.outputcache.prompt_count = parent[u'content'][u'prompt']
+        self.display_hook.set_parent(parent)        
         try:
             code = parent[u'content'][u'code']
-            self.outputcache.prompt_count=self.outputcache.prompt_count+1
-            self.display_hook.set_index(self.outputcache.prompt_count)
+            self.prompt_bk=self.outputcache.prompt_count
+            self.outputcache.prompt_count = parent[u'content'][u'prompt']
+            #self.outputcache.prompt_count = self.get_prompt()
+            self.display_hook.set_index(parent[u'content'][u'prompt'])
+            
         except:
             print>>sys.__stderr__, "Got bad msg: "
             print>>sys.__stderr__, Message(parent)
@@ -365,7 +370,11 @@ class InteractiveShellKernel(InteractiveShell):
             #self.user_ns and self.user_global_ns are inherited from InteractiveShell the Mother class
             
             self.hooks.pre_runcode_hook()
+            #prompt_bk=self.outputcache.prompt_count
+            #self.outputcache.prompt_count = parent[u'content'][u'prompt']
             self._runlines(code)
+            self.outputcache.prompt_count = self.prompt_bk
+            #self.outputcache.prompt_count = prompt_bk
             
         except :
             result = u'error'
@@ -389,8 +398,6 @@ class InteractiveShellKernel(InteractiveShell):
         self.reply_socket.send_json(reply_msg)
         if reply_msg['content']['status'] == u'error':
             self.abort_queue()
-            
-        
 
     def complete_request(self, ident, parent):
         matches = {'matches' : self.complete(parent),
@@ -400,21 +407,18 @@ class InteractiveShellKernel(InteractiveShell):
         print >> sys.__stdout__, completion_msg
     
     def prompt_request(self,ident,parent):
-            prompt=self.hooks.generate_prompt(False)
-            prompt_msg = self.session.msg(u'prompt',{u'data':prompt}, parent=parent)
-            print(prompt_msg)
-            self.reply_socket.send(ident, zmq.SNDMORE)
-            self.reply_socket.send_json(prompt_msg)
-            #self.session.send(self.reply_socket, 'prompt_reply',)
+            #self.outputcache.prompt_count = self.prompt_bk
+            #print >> sys.__stdout__,self.outputcache.prompt_count
+            prompt_msg = {u'prompt':self.outputcache.prompt_count,
+                           'status':'ok'}    
+            self.session.send(self.reply_socket, 'prompt_reply',prompt_msg, parent, ident)
+            self.outputcache.prompt_count = self.outputcache.prompt_count+1
     
     def pid_request(self,ident,parent):
             pid_msg = {u'pid':self.kernel_pid,
-                       'status':'ok'}
+                     'status':'ok'}
             self.session.send(self.reply_socket, 'pid_reply',pid_msg, parent, ident)
-            #print("EN pid_request")
-            #print(pid_msg)
-            #self.reply_socket.send(ident, zmq.SNDMORE)
-            #self.reply_socket.send_json(prompt_msg)
+            
             
     
     def complete(self, msg):
