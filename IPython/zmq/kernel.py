@@ -145,7 +145,7 @@ class InteractiveShellKernel(InteractiveShell):
         sys.stdout = self.stdout
         sys.stderr = self.stderr
         
-        
+        ##overloaded methods
         self.runcode = self._runcode
         self.push_line = self._push_line
         self.system = self._system
@@ -158,8 +158,10 @@ class InteractiveShellKernel(InteractiveShell):
         #self.InteractiveTB.out_stream=self.stderr
         self.init_readline()
         
+        self.kernel_pid=os.getpid()
+        
         self.handlers = {}
-        for msg_type in ['execute_request', 'complete_request','prompt_request']:
+        for msg_type in ['execute_request', 'complete_request','prompt_request','pid_request']:
             self.handlers[msg_type] = getattr(self, msg_type)
        
     def _system(self, cmd):
@@ -405,12 +407,22 @@ class InteractiveShellKernel(InteractiveShell):
             self.reply_socket.send_json(prompt_msg)
             #self.session.send(self.reply_socket, 'prompt_reply',)
     
+    def pid_request(self,ident,parent):
+            pid_msg = {u'pid':self.kernel_pid,
+                       'status':'ok'}
+            self.session.send(self.reply_socket, 'pid_reply',pid_msg, parent, ident)
+            #print("EN pid_request")
+            #print(pid_msg)
+            #self.reply_socket.send(ident, zmq.SNDMORE)
+            #self.reply_socket.send_json(prompt_msg)
+            
+    
     def complete(self, msg):
         #return self.completer.complete(msg.content.line, msg.content.text)<-- code
         #we dont need KernelCompleter, we can use IPCompleter object inherited
         #from InteractiveShell and suppurt magics etc... Omar.
         return self.Completer.all_completions(msg.content.line)
-        
+
 
     def _interact(self):
         ident = self.reply_socket.recv()

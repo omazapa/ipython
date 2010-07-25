@@ -8,6 +8,8 @@ import __builtin__
 from contextlib import nested
 import time
 import sys
+import os
+import signal
 import uuid
 import cPickle as pickle
 import code
@@ -52,9 +54,11 @@ class InteractiveShellFrontend(InteractiveShell):
        self.push_line=self._push_line
        self.runsource=self._runsource
        self.runcode=self._runcode
+       #when start frontend get kernel id
+       self.kernel_pid=None
+       self.get_kernel_pid()
+       #this is a experimental code to trap KeyboardInterrupt in bucles
        
-       
-   
    def _push_line(self,line):
        """Reimplementation of method push_line in class InteractiveShell
        this method let indent into prompt when you need it
@@ -121,18 +125,20 @@ class InteractiveShellFrontend(InteractiveShell):
        
    def handle_stream(self, omsg):
        #print "handle_stream:\n",omsg
-        
-       if omsg.content.name == 'stdout':
-           outstream = sys.stdout
-           print >> outstream, omsg.content.data
-       elif omsg.content.name == 'stderr':
-           outstream = sys.stderr
-           print >> outstream, omsg.content.data
-       else:
-           promt_msg = self.reply_socket.recv()    
-           raw_output=raw_input(promt_msg)    
-           self.reply_socket.send(raw_output)
-           
+       try:
+           if omsg.content.name == 'stdout':
+               outstream = sys.stdout
+               print >> outstream, omsg.content.data
+           elif omsg.content.name == 'stderr':
+               outstream = sys.stderr
+               print >> outstream, omsg.content.data
+           else:
+               promt_msg = self.reply_socket.recv()    
+               raw_output=raw_input(promt_msg)    
+               self.reply_socket.send(raw_output)
+       except KeyboardInterrupt:
+               os.kill(self.kernel_pid,signal.SIGINT)
+               #self.write('\nKeyboardInterrupt\n')
        
    def handle_output(self, omsg):
        #print "handle_output:\n",omsg
@@ -143,14 +149,25 @@ class InteractiveShellFrontend(InteractiveShell):
    def handle_prompt(self,omsg):
            pass
        
+       
+   #def handle_kernel_pid(self,omsg):
+       #print("in handel kernel")
+       #self.kernel_pid=int(omsg['pid'])
+       
 
    def recv_output(self):
        #print "recv_output:"
        while True:
-           omsg = self.session.recv(self.sub_socket)
-           if omsg is None:
-               break
-           self.handle_output(omsg)
+           try:    
+               omsg = self.session.recv(self.sub_socket)
+               if omsg is None:
+                   break
+               self.handle_output(omsg)
+           except KeyboardInterrupt:
+                os.kill(self.kernel_pid,int(signal.SIGINT))
+                #self.write('\nKeyboardInterrupt\n')
+                break
+                       
        
    def handle_reply(self, rep):
         # Handle any side effects on output channels
@@ -172,6 +189,17 @@ class InteractiveShellFrontend(InteractiveShell):
         rep = self.session.recv(self.request_socket)
         self.handle_reply(rep)
         return rep
+   
+   def get_kernel_pid(self):
+        omsg = self.session.send(self.request_socket,'pid_request')
+        while True:
+           #print "waiting recieve"
+           rep = self.session.recv(self.request_socket)
+           
+           if rep is not None:
+               self.kernel_pid=rep['content']['pid']
+               break
+           time.sleep(0.05)
 
    def _runcode(self, code):
        # We can't pickle code objects, so fetch the actual source
