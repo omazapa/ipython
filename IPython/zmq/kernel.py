@@ -459,7 +459,8 @@ if __name__ == "__main__" :
     req_conn = connection % (port_base+2)
     
     print >>sys.__stdout__, "Starting the kernel..."
-    print >>sys.__stdout__, "On:",rep_conn, pub_conn
+    print >>sys.__stdout__, "XREP Channel:", rep_conn
+    print >>sys.__stdout__, "PUB Channel:", pub_conn
 
     session = Session(username=u'kernel')
 
