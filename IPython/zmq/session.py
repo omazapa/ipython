@@ -81,12 +81,8 @@ class Session(object):
 #	The user and uuid was taked from enviroment and msg_id are incrementing 1 every call
 #	"""
     def __init__(self, username=os.environ.get('USER','username')):
-
         self.username = username
-        if session is None:
-            self.session = str(uuid.uuid4())
-        else:
-            self.session = session
+        self.session = str(uuid.uuid4())
         self.msg_id = 0
 
     def msg_header(self):

@@ -407,13 +407,11 @@ class InteractiveShellKernel(InteractiveShell):
         print >> sys.__stdout__, completion_msg
     
     def prompt_request(self,ident,parent):
-            #self.outputcache.prompt_count = self.prompt_bk
-            #print >> sys.__stdout__,self.outputcache.prompt_count
+            self.outputcache.prompt_count = self.outputcache.prompt_count+1
             prompt_msg = {u'prompt':self.outputcache.prompt_count,
                            'status':'ok'}    
             self.session.send(self.reply_socket, 'prompt_reply',prompt_msg, parent, ident)
-            self.outputcache.prompt_count = self.outputcache.prompt_count+1
-    
+            
     def pid_request(self,ident,parent):
             pid_msg = {u'pid':self.kernel_pid,
                      'status':'ok'}
@@ -459,8 +457,7 @@ if __name__ == "__main__" :
     req_conn = connection % (port_base+2)
     
     print >>sys.__stdout__, "Starting the kernel..."
-    print >>sys.__stdout__, "XREP Channel:", rep_conn
-    print >>sys.__stdout__, "PUB Channel:", pub_conn
+    print >>sys.__stdout__, "On:",rep_conn, pub_conn
 
     session = Session(username=u'kernel')
 

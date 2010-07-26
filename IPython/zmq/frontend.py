@@ -13,32 +13,30 @@ import signal
 import uuid
 import cPickle as pickle
 import code
+from IPython.core.blockbreaker import BlockBreaker
 
-from IPython.core.iplib import InteractiveShell
-import session
+import IPython.zmq.session as session
 import completer
-from IPython.core import ultratb
-from IPython.utils.traitlets import (
-    Int, Str, CBool, CaselessStrEnum, Enum, List, Unicode
-)
+import rlcompleter
 
-
-class InteractiveShellFrontend(InteractiveShell):
-   """ this class uses some meny features of Interactive shell,
-       but it dont run code really, just let you interactue like ipython prompt
-       and send messages to ipython kernel
-    
+class Frontend(object):
+   """ this class is a simple frontend to ipython-zmq 
    """
-   #explanation:
-   #if I inherited from InteractiveShell I have support to Colors in outputs, History, prompt indentation
-   #and I can use too many features in the new frontend whithout run code here.
    
    def __init__(self,filename = "<ipython_frontent>", session = session, request_socket = None, subscribe_socket = None,reply_socket = None):
-       InteractiveShell.__init__(self)
-       self.buffer_lines=[]
+       #InteractiveShell.__init__(self)
+       #self.buffer_lines=[]
        
        self.completer = completer.ClientCompleter(self,session,request_socket)
-       self.Completer = self.completer
+       rlcompleter.readline.parse_and_bind("tab: complete")
+       rlcompleter.readline.parse_and_bind('set show-all-if-ambiguous on')
+       rlcompleter.Completer=self.completer.complete
+       
+       history_path = os.path.expanduser('~/.ipython/history')
+       if os.path.isfile(history_path):
+           rlcompleter.readline.read_history_file(history_path)
+       else:
+           print("history file can not be readed.")   
        self.handlers = {}
        for msg_type in ['pyin', 'pyout', 'pyerr', 'stream']:
            self.handlers[msg_type] = getattr(self, 'handle_%s' % msg_type)
@@ -46,61 +44,33 @@ class InteractiveShellFrontend(InteractiveShell):
        self.request_socket = request_socket
        self.sub_socket = subscribe_socket
        self.reply_socket = reply_socket
-       self.backgrounded = 0
        self.messages = {}
-       sys.excepthook = ultratb.VerboseTB()
-       self.formattedtb = ultratb.FormattedTB()
-       __builtin__.__dict__['__IPYTHON__active'] = 1
-       self.push_line = self._push_line
-       self.runsource = self._runsource
-       self.runcode=self._runcode
-       #when start frontend get kernel id
        self.kernel_pid = None
        self.get_kernel_pid()
-       #self.prompt = 0
-       
-       self.outputcache.prompt_count = self.get_prompt()  
+       self.prompt_count = 0
+       self.prompt_count = self.get_prompt()  
        #this is a experimental code to trap KeyboardInterrupt in bucles
-       
-   def _push_line(self,line):
-       """Reimplementation of method push_line in class InteractiveShell
-       this method let indent into prompt when you need it
-        """
-       for subline in line.splitlines():
-            self._autoindent_update(subline)
-       self.buffer_lines.append(line)
-       more = self._runsource('\n'.join(self.buffer_lines), self.filename)
-       
-       if more == None:
-           self.outputcache.prompt_count = self.get_prompt()
-           self.buffer_lines[:]=[]
-       return more
-   
-   def _runsource(self, source, filename='<input>', symbol='single'):
-       """Reimplementation of method runsource in class InteractiveShell
-          but dont run source really, just check syntax and send code to kernel
-            
-        """
-       source=source.encode(self.stdin_encoding)
-       if source[:1] in [' ', '\t']:
-           source = 'if 1:\n%s' % source
-       try:
-           code = self.compile(source,filename,symbol)
-           #warining this code is to try enabled prefiltered code
-       except (OverflowError, SyntaxError, ValueError, TypeError, MemoryError):
-            # Case 1
-           self.showsyntaxerror(filename)
-           return None
-
-       if code is None:
-            # Case 2
-           return True
-       else:
-           self.outputcache.prompt_count = self.get_prompt()
-           self.runcode(self.buffer_lines)
-           self.buffer_lines[:]=[]
-           return False
+       #self.prompt_count = 1
         
+   def interact(self):
+       try:
+           bb = BlockBreaker()
+           bb.push(raw_input('In[%i]'%self.prompt_count))
+           while not bb.interactive_block_ready():
+               code = raw_input('....:'+' '*bb.indent_spaces)    
+               more=bb.push(' '*bb.indent_spaces+code)
+               if not more:
+                   bb.indent_spaces = bb.indent_spaces-4
+           self.runcode(bb.source)
+           bb.reset()
+           self.prompt_count = self.get_prompt() 
+       except  KeyboardInterrupt:
+           print('\nKeyboardInterrupt\n')    
+           pass
+   def start(self):
+       while True:
+           self.interact()    
+   
    def handle_pyin(self, omsg):
        #print "handle_pyin:\n",omsg
        if omsg.parent_header.session == self.session.session:
@@ -109,6 +79,7 @@ class InteractiveShellFrontend(InteractiveShell):
        if c:
            print '[IN from %s]' % omsg.parent_header.username
            print c
+           
    def handle_pyout(self, omsg):
        #print "handle_pyout:\n",omsg # dbg
        if omsg.parent_header.session == self.session.session:
@@ -119,7 +90,7 @@ class InteractiveShellFrontend(InteractiveShell):
    
    def print_pyerr(self, err):
        #I am studing how print a beautyfull message with IPyhton.core.utratb
-       self.CustomTB(err.etype,err.evalue,''.join(err.traceback))
+       print(err.etype+'\n'+err.evalue+'\n'+''.join(err.traceback))
        
    def handle_pyerr(self, omsg):
        #print "handle_pyerr:\n",omsg
@@ -199,7 +170,7 @@ class InteractiveShellFrontend(InteractiveShell):
         return self.kernel_pid
         
    def get_prompt(self):
-       prompt_msg = {'current':self.outputcache.prompt_count }
+       prompt_msg = {'current':self.prompt_count }
        omsg = self.session.send(self.request_socket,'prompt_request',prompt_msg)
        while True:
            #print "waiting recieve"
@@ -207,32 +178,16 @@ class InteractiveShellFrontend(InteractiveShell):
            
            if rep is not None:
                #print(rep)    
-               self.prompt=int(rep['content']['prompt'])
+               self.prompt_count=int(rep['content']['prompt'])
                break
            time.sleep(0.05)
-       return self.prompt
+       return self.prompt_count
 
         
 
-   def _runcode(self, code):
-       # We can't pickle code objects, so fetch the actual source
-       
-       src = '\n'.join(self.buffer_lines)
-       # for non-background inputs, if we do have previoiusly backgrounded
-       # jobs, check to see if they've produced results
-       if not src.endswith(';'):
-           while self.backgrounded > 0:
-               #print 'checking background'
-               rep = self.recv_reply()
-               if rep:
-                   self.backgrounded -= 1
-               time.sleep(0.05)
-       # Send code execution message to kernel
-       #print "sending message"
+   def runcode(self, src):
        code=dict(code=src)
-       #print "sending = ",self.outputcache.prompt_count
-       code['prompt'] = self.outputcache.prompt_count
-       #print code, type(code)
+       code['prompt'] = self.prompt_count
        omsg = self.session.send(self.request_socket,
                                  'execute_request', code)
        self.messages[omsg.header.msg_id] = omsg
@@ -300,5 +255,5 @@ if __name__ == "__main__" :
     # Make session and user-facing client
     sess = session.Session()
     
-    frontend=InteractiveShellFrontend('<zmq-console>',sess,request_socket=request_socket,subscribe_socket=sub_socket,reply_socket=reply_socket)
-    frontend.interact()
+    frontend=Frontend('<zmq-console>',sess,request_socket=request_socket,subscribe_socket=sub_socket,reply_socket=reply_socket)
+    frontend.start()
