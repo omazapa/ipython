@@ -230,7 +230,7 @@ class InteractiveShellFrontend(InteractiveShell):
        # Send code execution message to kernel
        #print "sending message"
        code=dict(code=src)
-       print "sending = ",self.outputcache.prompt_count
+       #print "sending = ",self.outputcache.prompt_count
        code['prompt'] = self.outputcache.prompt_count
        #print code, type(code)
        omsg = self.session.send(self.request_socket,
