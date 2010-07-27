@@ -55,7 +55,7 @@ class Frontend(object):
    def interact(self):
        try:
            bb = BlockBreaker()
-           bb.push(raw_input('In[%i]'%self.prompt_count))
+           bb.push(raw_input('In[%i]:'%self.prompt_count))
            while not bb.interactive_block_ready():
                code = raw_input('....:'+' '*bb.indent_spaces)    
                more=bb.push(' '*bb.indent_spaces+code)
@@ -69,8 +69,17 @@ class Frontend(object):
            pass
    def start(self):
        while True:
-           self.interact()    
-   
+           try:
+               self.interact()    
+           except EOFError:
+               answer = ''    
+               while True:
+                   answer = raw_input('\nDo you really want to exit ([y]/n)?')
+                   if answer == 'y' or answer == '' :
+                       sys.exit()
+                   elif answer == 'n':
+                       break
+               
    def handle_pyin(self, omsg):
        #print "handle_pyin:\n",omsg
        if omsg.parent_header.session == self.session.session:
