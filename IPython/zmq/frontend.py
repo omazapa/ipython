@@ -132,9 +132,9 @@ class Frontend(object):
                outstream = sys.stderr
                print >> outstream, omsg.content.data
            else:
-               promt_msg = self.reply_socket.recv()    
+               promt_msg = self.reply_socket.recv_json()    
                raw_output=raw_input(promt_msg)    
-               self.reply_socket.send(raw_output)
+               self.reply_socket.send_json(raw_output)
        except KeyboardInterrupt:
                os.kill(self.kernel_pid,signal.SIGINT)
                #self.write('\nKeyboardInterrupt\n')

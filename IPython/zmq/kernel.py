@@ -310,9 +310,9 @@ class InteractiveShellKernel(InteractiveShell):
             #print>>sys.__stdout__,"MESSAGE = ", Message(msg)
         self.pub_socket.send_json(msg)            
         #print("raw_input called")
-        self.request_socket.send(message)
+        self.request_socket.send_json(message)
         #print("message was sended")
-        raw_input_msg = self.request_socket.recv()
+        raw_input_msg = self.request_socket.recv_json()
         #print("message was recved")
         return raw_input_msg
     
