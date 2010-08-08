@@ -1,8 +1,20 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
-# Copyrigth 2010 Omar Andres Zapata Mesa
-# Copyrigth 2010 Fernando Perez
-# Copyrigth 2010 Brian Granger
+"""Frontend of ipython working with python-zmq
+
+Ipython's frontend, is a ipython interface that send request to kernel and proccess the kernel's outputs.
+
+For more details, see the ipython-zmq design
+"""
+#-----------------------------------------------------------------------------
+# Copyright (C) 2010 The IPython Development Team
+#
+# Distributed under the terms of the BSD License. The full license is in
+# the file COPYING, distributed as part of this software.
+#-----------------------------------------------------------------------------
+
+#-----------------------------------------------------------------------------
+# Imports
+#-----------------------------------------------------------------------------
 
 import __builtin__
 from contextlib import nested
@@ -14,27 +26,36 @@ import uuid
 import cPickle as pickle
 import code
 import zmq
-from IPython.core.blockbreaker import BlockBreaker
-from kernelmanager import KernelManager
-
-from  IPython.zmq.session import Session
 import completer
 import rlcompleter
 import time
-#class IpXReqSocketChannel(XReqSocketChannel):
-   #def __init__(self, context, session, address):
-       #super(XReqSocketChannel, self).__init__(context, session, address)
 
+
+#-----------------------------------------------------------------------------
+# Imports from ipython
+#-----------------------------------------------------------------------------
+
+from IPython.core.blockbreaker import BlockBreaker
+from kernelmanager import KernelManager
+from  IPython.zmq.session import Session
 
 
 class Frontend(object):
    """ this class is a simple frontend to ipython-zmq 
+       
+      NOTE: this class use kernelmanager to manipulate sockets
+      
+      Parameters:
+      -----------
+      kernelmanager : object
+        instantiated object from class KernelManager in module kernelmanager
+        
    """
    
    def __init__(self,kernelmanager):
        self.km = kernelmanager
        self.km.start_channels()
-       time.sleep(0.05)
+       time.sleep(0.5)
        self.session = kernelmanager.session
        self.km.xreq_channel.ioloop.stop()
        self.km.sub_channel.ioloop.stop()
@@ -47,7 +68,7 @@ class Frontend(object):
        self.completer = completer.ClientCompleter(self,self.session,self.request_socket)
        rlcompleter.readline.parse_and_bind("tab: complete")
        rlcompleter.readline.parse_and_bind('set show-all-if-ambiguous on')
-       rlcompleter.Completer=self.completer.complete
+       rlcompleter.Completer = self.completer.complete
        
        history_path = os.path.expanduser('~/.ipython/history')
        if os.path.isfile(history_path):
@@ -62,10 +83,12 @@ class Frontend(object):
        self.get_kernel_pid()
        self.prompt_count = 0
        self.prompt_count = self.get_prompt()  
-       #this is a experimental code to trap KeyboardInterrupt in bucles
-       #self.prompt_count = 1
         
    def interact(self):
+       """ let you get input from console using inputsplitter, then
+       while you enter code it can indent and set index id to any input
+
+       """    
        try:
            bb = BlockBreaker()
            bb.push(raw_input('In[%i]:'%self.prompt_count))
@@ -75,13 +98,15 @@ class Frontend(object):
                if not more:
                    bb.indent_spaces = bb.indent_spaces-4
            self.runcode(bb.source)
-           #self.km.xreq_channel.execute(bb.source)
            bb.reset()
            self.prompt_count = self.get_prompt() 
        except  KeyboardInterrupt:
            print('\nKeyboardInterrupt\n')    
            pass
    def start(self):
+       """ init a bucle that call interact method to get code.
+       
+       """
        while True:
            try:
                self.interact()    
@@ -95,7 +120,20 @@ class Frontend(object):
                        break
    
    def handle_pyin(self, omsg):
-       #print "handle_pyin:\n",omsg
+       """ handler that print inputs of other users in the kernel_pid
+       
+       Explanation: if two users are working in a kernel, when user one send someting to kernel
+       the user two see in terminal the input from user one.
+       
+       Parameters:
+       -----------
+       
+       omsg : dict
+           message that content session information like user and ids, and input
+           from other users.
+       
+       """
+       
        if omsg.parent_header.session == self.session.session:
             return
        c = omsg.content.code.rstrip()
@@ -104,7 +142,19 @@ class Frontend(object):
            print c
            
    def handle_pyout(self, omsg):
-       #print "handle_pyout:\n",omsg # dbg
+       """ handler that print stdout ouputs captured in kernel and index of outputs
+       generate by ipython
+       
+  
+       
+       Parameters:
+       -----------
+       
+       omsg : dict
+           message that content session information like user and ids, index of output
+           and data to print in stdout
+       
+       """
        if omsg.parent_header.session == self.session.session:
            print "%s%s" % ("Out[%i]: "%omsg.content.index, omsg.content.data)
        else:
@@ -112,18 +162,47 @@ class Frontend(object):
            print omsg.content.data
    
    def print_pyerr(self, err):
-       #I am studing how print a beautyfull message with IPyhton.core.utratb
+       """ handler that print traceback captured in kernel and it show tracebacks in frontend
+        
+       
+       Parameters:
+       -----------
+       
+       err : dict
+           message that content information about traceback
+       
+       """
        print(err.etype+'\n'+err.evalue+'\n'+''.join(err.traceback))
        
    def handle_pyerr(self, omsg):
-       #print "handle_pyerr:\n",omsg
+       """ handler that print errors in stderr captured in kernel and show the user that generate the error
+        
+       
+       Parameters:
+       -----------
+       
+       omsg : dict
+           message that content session information like user and ids, and data to print in stderr
+       
+       """           
        if omsg.parent_header.session == self.session.session:
            return
        print >> sys.stderr, '[ERR from %s]' % omsg.parent_header.username
        self.print_pyerr(omsg.content)
        
    def handle_stream(self, omsg):
-       #print "handle_stream:\n",omsg
+       """ handler that print errors in stderr, outputs in stdout, and get a raw_input's request from kernel
+       to activate a local raw_input in frontend to send the reply to kernel again.
+        
+       
+       Parameters:
+       -----------
+       
+       omsg : dict
+           message that content session information like user and ids, and data to print in stderr or stdout.
+       
+       """           
+       
        try:
            if omsg.content.name == 'stdout':
                outstream = sys.stdout
@@ -137,16 +216,25 @@ class Frontend(object):
                self.reply_socket.send_json(raw_output)
        except KeyboardInterrupt:
                os.kill(self.kernel_pid,signal.SIGINT)
-               #self.write('\nKeyboardInterrupt\n')
        
    def handle_output(self, omsg):
-       #print "handle_output:\n",omsg
+       """ handler that call the other handlers depending of it type.
+       
+       Parameters:
+       -----------
+       
+       omsg : dict
+           message that content session information like user and ids, and msg_type       
+       """                 
        handler = self.handlers.get(omsg.msg_type, None)
        if handler is not None:
            handler(omsg)    
 
    def recv_output(self):
-       #print "recv_output:"
+       """ Method that wait a output after to send a request to kernel, and when it have a
+       response call to handle_output to proccess the message.
+       
+       """                            
        while True:
            try:    
                omsg = self.session.recv(self.sub_socket)
@@ -155,11 +243,19 @@ class Frontend(object):
                self.handle_output(omsg)
            except KeyboardInterrupt:
                 os.kill(self.kernel_pid,int(signal.SIGINT))
-                #self.write('\nKeyboardInterrupt\n')
                 break
                        
        
    def handle_reply(self, rep):
+       """ handler that have the status of the response and call the other handlers depending of it type to show the outputs.
+       
+       Parameters:
+       -----------
+       
+       rep : dict
+           message that content the status of reply, the status can be ok, error or aborted       
+       """                 
+   
         # Handle any side effects on output channels
         self.recv_output()
         # Now, dispatch on the possible reply types we must handle
@@ -177,14 +273,23 @@ class Frontend(object):
                 print >> sys.stderr, ab
 
    def recv_reply(self):
+        """  wait for reply in request socket to process the messages using the hendlers.
+        
+        """                   
         rep = self.session.recv(self.request_socket)
         self.handle_reply(rep)
         return rep
    
    def get_kernel_pid(self):
+        """ let you get kernel's pid (proccess id) sending a pid_request message.
+        
+        Returns:
+        --------
+        kernel_pid : int
+             pid gotten from kernel
+        """
         omsg = self.session.send(self.request_socket,'pid_request')
         while True:
-           #print "waiting recieve"
            rep = self.session.recv(self.request_socket)
            
            if rep is not None:
@@ -194,14 +299,21 @@ class Frontend(object):
         return self.kernel_pid
         
    def get_prompt(self):
+       """ let you get prompt index from ipython's kernel, to index de inputs and outputs synchronized
+       between kernel and frontend
+       
+       Returns:
+       --------
+       prompt_count : int
+            current prompt number in kernel
+       
+       """
        prompt_msg = {'current':self.prompt_count }
        omsg = self.session.send(self.request_socket,'prompt_request',prompt_msg)
        while True:
-           #print "waiting recieve"
            rep = self.session.recv(self.request_socket)
            
            if rep is not None:
-               #print(rep)    
                self.prompt_count=int(rep['content']['prompt'])
                break
            time.sleep(0.05)
@@ -210,6 +322,13 @@ class Frontend(object):
         
 
    def runcode(self, src):
+       """ send execute_request`s message to kernel and let you run code in src parameter into ipython kernel.
+       
+       Parameters:
+       ----------
+       src : str
+           python or ipython's code to run
+       """
        code=dict(code=src)
        code['prompt'] = self.prompt_count
        omsg = self.session.send(self.request_socket,
@@ -239,6 +358,15 @@ class Frontend(object):
        code content python or ipython code to run and the reply status was recived 
        here.
        to get all others outputs see the method recv_request_output 
+       
+       Parameters:
+       code : str
+           python or ipython's code to run in kernel in mode noninteractive
+       
+       Returns:
+       --------
+       rep_msg : dict
+           dictionary that content the status of execution (ok, error, aborted)
        """
        omsg = self.session.send(self.request_socket,'execute_request', dict(code=code))
        self.messages[omsg.header.msg_id] = omsg
@@ -248,11 +376,21 @@ class Frontend(object):
    def recv_noninteractive_reply(self):
        """method that recv output from kernels when you send a request in non interactive mode
        outputs can be pyin, pyerr or stream.
+       
+       Returns:
+       --------
+       
+       output_msg : dict
+           message that content outputs like stdout or stderr gotten in kernel from 
+           last noninteractive request
+       
        """
        output_msg = self.session.recv(self.sub_socket)
        return output_msg
        
-if __name__ == "__main__" :
+def main():
+    """ function that start a kernel with default parameters 
+    """
     # Defaults
     xreq_addr = ('127.0.0.1',5555)
     sub_addr = ('127.0.0.1', 5556)
@@ -263,7 +401,8 @@ if __name__ == "__main__" :
     km = KernelManager(xreq_addr, sub_addr, rep_addr,context,None)
     
     # Make session and user-facing client
-    
-    
     frontend=Frontend(km)
     frontend.start()
+
+if __name__ == "__main__" :
+     main()   
