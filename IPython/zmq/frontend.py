@@ -118,7 +118,9 @@ class Frontend(object):
                outstream = sys.stderr
                print >> outstream, omsg.content.data
            else:
-               promt_msg = self.reply_socket.recv()    
+               #print "waiting recv"    
+               promt_msg = self.reply_socket.recv_json()    
+               #print promt_msg
                raw_output=raw_input(promt_msg)    
                self.reply_socket.send(raw_output)
        except KeyboardInterrupt:

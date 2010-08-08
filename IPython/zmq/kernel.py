@@ -307,10 +307,11 @@ class InteractiveShellKernel(InteractiveShell):
     def _raw_input(self,message):
         content = {u'name':'stdin', u'data':message}
         msg = self.session.msg(u'stream', content=content)
-            #print>>sys.__stdout__,"MESSAGE = ", Message(msg)
+        #print>>sys.__stdout__,"MESSAGE = ", Message(msg)
         self.pub_socket.send_json(msg)            
         #print("raw_input called")
-        self.request_socket.send(message)
+        time.sleep(0.05)
+        self.request_socket.send_json(message)
         #print("message was sended")
         raw_input_msg = self.request_socket.recv()
         #print("message was recved")
