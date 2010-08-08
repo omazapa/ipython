@@ -13,21 +13,38 @@ import signal
 import uuid
 import cPickle as pickle
 import code
+import zmq
 from IPython.core.blockbreaker import BlockBreaker
+from kernelmanager import KernelManager
 
-import IPython.zmq.session as session
+from  IPython.zmq.session import Session
 import completer
 import rlcompleter
+import time
+#class IpXReqSocketChannel(XReqSocketChannel):
+   #def __init__(self, context, session, address):
+       #super(XReqSocketChannel, self).__init__(context, session, address)
+
+
 
 class Frontend(object):
    """ this class is a simple frontend to ipython-zmq 
    """
    
-   def __init__(self,filename = "<ipython_frontent>", session = session, request_socket = None, subscribe_socket = None,reply_socket = None):
-       #InteractiveShell.__init__(self)
-       #self.buffer_lines=[]
+   def __init__(self,kernelmanager):
+       self.km = kernelmanager
+       self.km.start_channels()
+       time.sleep(0.05)
+       self.session = kernelmanager.session
+       self.km.xreq_channel.ioloop.stop()
+       self.km.sub_channel.ioloop.stop()
+       self.km.rep_channel.ioloop.stop()
+       self.request_socket = self.km.xreq_channel.socket
+       self.sub_socket = self.km.sub_channel.socket
+       self.reply_socket = self.km.rep_channel.socket
        
-       self.completer = completer.ClientCompleter(self,session,request_socket)
+       
+       self.completer = completer.ClientCompleter(self,self.session,self.request_socket)
        rlcompleter.readline.parse_and_bind("tab: complete")
        rlcompleter.readline.parse_and_bind('set show-all-if-ambiguous on')
        rlcompleter.Completer=self.completer.complete
@@ -40,10 +57,6 @@ class Frontend(object):
        self.handlers = {}
        for msg_type in ['pyin', 'pyout', 'pyerr', 'stream']:
            self.handlers[msg_type] = getattr(self, 'handle_%s' % msg_type)
-       self.session = session
-       self.request_socket = request_socket
-       self.sub_socket = subscribe_socket
-       self.reply_socket = reply_socket
        self.messages = {}
        self.kernel_pid = None
        self.get_kernel_pid()
@@ -62,6 +75,7 @@ class Frontend(object):
                if not more:
                    bb.indent_spaces = bb.indent_spaces-4
            self.runcode(bb.source)
+           #self.km.xreq_channel.execute(bb.source)
            bb.reset()
            self.prompt_count = self.get_prompt() 
        except  KeyboardInterrupt:
@@ -79,7 +93,7 @@ class Frontend(object):
                        sys.exit()
                    elif answer == 'n':
                        break
-               
+   
    def handle_pyin(self, omsg):
        #print "handle_pyin:\n",omsg
        if omsg.parent_header.session == self.session.session:
@@ -117,12 +131,10 @@ class Frontend(object):
            elif omsg.content.name == 'stderr':
                outstream = sys.stderr
                print >> outstream, omsg.content.data
-           else:
-               #print "waiting recv"    
+           else:  
                promt_msg = self.reply_socket.recv_json()    
-               #print promt_msg
                raw_output=raw_input(promt_msg)    
-               self.reply_socket.send(raw_output)
+               self.reply_socket.send_json(raw_output)
        except KeyboardInterrupt:
                os.kill(self.kernel_pid,signal.SIGINT)
                #self.write('\nKeyboardInterrupt\n')
@@ -153,9 +165,10 @@ class Frontend(object):
         # Now, dispatch on the possible reply types we must handle
         if rep is None:
             return
-        if rep.content.status == 'error':
+        
+        if rep['content']['status'] == 'error':
             self.print_pyerr(rep.content)            
-        elif rep.content.status == 'aborted':
+        elif rep['content']['status'] == 'aborted':
             print >> sys.stderr, "ERROR: ABORTED"
             ab = self.messages[rep.parent_header.msg_id].content
             if 'code' in ab:
@@ -241,30 +254,16 @@ class Frontend(object):
        
 if __name__ == "__main__" :
     # Defaults
-    import zmq
-    ip = '127.0.0.1'
-    port_base = 5555
-    connection = ('tcp://%s' % ip) + ':%i'
-    req_conn = connection % port_base
-    sub_conn = connection % (port_base+1)
-    rep_conn = connection % (port_base+2)
+    xreq_addr = ('127.0.0.1',5555)
+    sub_addr = ('127.0.0.1', 5556)
+    rep_addr = ('127.0.0.1', 5557)
+    context = zmq.Context()
+    session = Session()
+ 
+    km = KernelManager(xreq_addr, sub_addr, rep_addr,context,None)
     
-    # Create initial sockets
-    c = zmq.Context(1)
-    request_socket = c.socket(zmq.XREQ)
-    request_socket.connect(req_conn)
-    
-    sub_socket = c.socket(zmq.SUB)
-    sub_socket.connect(sub_conn)
-    sub_socket.setsockopt(zmq.SUBSCRIBE, '')
-    
-    reply_socket = c.socket(zmq.REP)
-    reply_socket.connect(rep_conn)
-    
-    
-
     # Make session and user-facing client
-    sess = session.Session()
     
-    frontend=Frontend('<zmq-console>',sess,request_socket=request_socket,subscribe_socket=sub_socket,reply_socket=reply_socket)
+    
+    frontend=Frontend(km)
     frontend.start()

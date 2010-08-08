@@ -313,7 +313,7 @@ class InteractiveShellKernel(InteractiveShell):
         time.sleep(0.05)
         self.request_socket.send_json(message)
         #print("message was sended")
-        raw_input_msg = self.request_socket.recv()
+        raw_input_msg = self.request_socket.recv_json()
         #print("message was recved")
         return raw_input_msg
     
@@ -445,9 +445,80 @@ class InteractiveShellKernel(InteractiveShell):
         while True:
             self.interact()
             
+def launch_kernel(xrep_port=0, pub_port=0, req_port=0, independent=False):
+    """ Launches a localhost kernel, binding to the specified ports.
+
+    Parameters
+    ----------
+    xrep_port : int, optional
+        The port to use for XREP channel.
+
+    pub_port : int, optional
+        The port to use for the SUB channel.
+
+    req_port : int, optional
+        The port to use for the REQ (raw input) channel.
+
+    independent : bool, optional (default False) 
+        If set, the kernel process is guaranteed to survive if this process
+        dies. If not set, an effort is made to ensure that the kernel is killed
+        when this process dies. Note that in this case it is still good practice
+        to kill kernels manually before exiting.
+
+    Returns
+    -------
+    A tuple of form:
+        (kernel_process, xrep_port, pub_port, req_port)
+    where kernel_process is a Popen object and the ports are integers.
+    """
+    import socket
+    from subprocess import Popen
+
+    # Find open ports as necessary.
+    ports = []
+    ports_needed = int(xrep_port <= 0) + int(pub_port <= 0) + int(req_port <= 0)
+    for i in xrange(ports_needed):
+        sock = socket.socket()
+        sock.bind(('', 0))
+        ports.append(sock)
+    for i, sock in enumerate(ports):
+        port = sock.getsockname()[1]
+        sock.close()
+        ports[i] = port
+    if xrep_port <= 0:
+        xrep_port = ports.pop(0)
+    if pub_port <= 0:
+        pub_port = ports.pop(0)
+    if req_port <= 0:
+        req_port = ports.pop(0)
+        
+    # Spawn a kernel.
+    command = 'from IPython.zmq.kernel import main; main()'
+    arguments = [ sys.executable, '-c', command, '--xrep', str(xrep_port), 
+                  '--pub', str(pub_port), '--req', str(req_port) ]
+    if independent:
+        if sys.platform == 'win32':
+            proc = Popen(['start', '/b'] + arguments, shell=True)
+        else:
+            proc = Popen(arguments, preexec_fn=lambda: os.setsid())
+    else:
+        if sys.platform == 'win32':
+            from _subprocess import DuplicateHandle, GetCurrentProcess, \
+                DUPLICATE_SAME_ACCESS
+            pid = GetCurrentProcess()
+            handle = DuplicateHandle(pid, pid, pid, 0, 
+                                     True, # Inheritable by new  processes.
+                                     DUPLICATE_SAME_ACCESS)
+            proc = Popen(arguments + ['--parent', str(int(handle))])
+        else:
+            proc = Popen(arguments + ['--parent'])
+
+    return proc, xrep_port, pub_port, req_port
+    
         
          
-if __name__ == "__main__" :
+#if __name__ == "__main__" :
+def main():
     c = zmq.Context(1)
 
     ip = '127.0.0.1'
@@ -484,3 +555,6 @@ if __name__ == "__main__" :
     print >>sys.__stdout__, "Use Ctrl-\\ (NOT Ctrl-C!) to terminate."
     kernel.start()
     #kernel.test()
+
+if __name__ == "__main__" :
+    main()   
