@@ -1,20 +1,35 @@
 # -*- coding: utf-8 -*-
-# Copyright 2010  Omar Andres Zapata Mesa
-# Copyright 2010  Fernando Perez 
-# Copyright 2010  Brian Granger
+"""Kernel of ipython working with python-zmq
 
+Ipython's kernel, is a ipython interface that listen in ports waiting for request.
+it use three socket's types XREP, SUB, REP that using standarized menssages let
+comunication between several frontends, allowing have a common enviroment into developers.
+
+For more details, see the class docstring below.
+"""
+#-----------------------------------------------------------------------------
+# Copyright (C) 2010 The IPython Development Team
+#
+# Distributed under the terms of the BSD License. The full license is in
+# the file COPYING, distributed as part of this software.
+#-----------------------------------------------------------------------------
+
+#-----------------------------------------------------------------------------
+# Imports
+#-----------------------------------------------------------------------------
 import __builtin__
 import zmq
 import sys
 import time
 import os
 import subprocess
-
 import traceback
 from contextlib import nested
 
-from IPython.utils.session import Session, Message, extract_header
-from IPython.utils import session
+#-----------------------------------------------------------------------------
+# Imports from ipython
+#-----------------------------------------------------------------------------
+from IPython.zmq.session import Session, Message, extract_header
 from IPython.core.completer import IPCompleter
 from IPython.core.iplib import InteractiveShell
 from IPython.core import ultratb
@@ -27,12 +42,30 @@ from IPython.frontend.process.killableprocess import Popen
 
 
 class OutStream(object):
-    """A file like object that publishes the stream to a 0MQ PUB socket."""
+    """A file like object that publishes the stream to a 0MQ PUB socket.
+    
+    Parameters
+    ----------
+    session : object
+        instantiated object from class Session in module session
+    
+    pub_socket : object
+        instantiated object from class Socket in module zmq
+    
+    name : str
+        content the ouptut type like stdout or stderr
+    
+    max_buffer : int
+        bites of buffer before send a message
+        
+    Example:
+    stdout = OutStream(session, pub_socket, u'stdout')
+    stderr = OutStream(session, pub_socket, u'stderr')
+    """
 
-    def __init__(self, session, pub_socket,request_socket, name, max_buffer=200):
+    def __init__(self, session, pub_socket, name, max_buffer=200):
         self.session = session
         self.pub_socket = pub_socket
-        self.request_socket = request_socket
         self.name = name
         self._buffer = []
         self._buffer_len = 0
@@ -40,12 +73,19 @@ class OutStream(object):
         self.parent_header = {}
 
     def set_parent(self, parent):
+        """ this method put from a session the username and ids to send messages
+        
+            Parameters
+            ----------
+            parent : dict
+                dictionary that content username, msg_id, session(uuid) 
+        """    
         self.parent_header = extract_header(parent)
 
-    def close(self):
-        self.pub_socket = None
-
     def flush(self):
+        """ acumulate a buffer indicate by max_buffer and send it using the sub socket
+        
+        """
         if self.pub_socket is None:
             raise ValueError(u'I/O operation on closed file')
         else:
@@ -54,7 +94,6 @@ class OutStream(object):
                 content = {u'name':self.name, u'data':data}
                 msg = self.session.msg(u'stream', content=content,
                                        parent=self.parent_header)
-                #print>>sys.__stdout__,"MESSAGE = ", Message(msg)
                 self.pub_socket.send_json(msg)
                 self._buffer_len = 0
                 self._buffer = []
@@ -66,22 +105,29 @@ class OutStream(object):
         raise IOError('Read not supported on a write only stream.')
 
     def read(self, size=None):
-        self.request_socket.send(size)   
-        #raise IOError('Read not supported on a write only stream.')
-        raw_input_msg = self.request_socket.recv()
-        return raw_input_msg
-
+        raise IOError('Read not supported on a write only stream.')
+        
     readline=read
 
-    def write(self, s):
+    def write(self, string):
+        """ method that overwrite sys.stdout.write or sys.stderr.write
+            
+            Parameters
+            ----------
+            string : str
+                content a data to print
+        """     
         if self.pub_socket is None:
             raise ValueError('I/O operation on closed file')
         else:
-            self._buffer.append(s)
-            self._buffer_len += len(s)
+            self._buffer.append(string)
+            self._buffer_len += len(string)
             self._maybe_send()
 
     def _maybe_send(self):
+        """ acumulate buffer before send it
+    
+        """  
         if '\n' in self._buffer[-1]:
             self._buffer=self._buffer[0:-1]
             self.flush()
@@ -89,12 +135,21 @@ class OutStream(object):
             self.flush()
 
     def writelines(self, sequence):
+        """ method that get a sequence of string from sys.stdout or sys.stderr
+            
+            Parameters
+            ----------
+            sequence : tuple
+            content a data to send with subscribe socket
+        """       
         if self.pub_socket is None:
             raise ValueError('I/O operation on closed file')
         else:
             for s in sequence:
                 self.write(s)
     def fileno(self):
+        """ return the number asociated a file
+        """
         if self.name == "stdout":
             return 1
         if self.name == "stderr":
@@ -104,13 +159,38 @@ class OutStream(object):
 
 
 class DisplayHook(object):
-
+    """class to overwrite outputcache.__class__.display in InteractiveShell 
+    and using sub socket send pyout messages ( see messages standards )
+        
+    Parameters
+    ----------
+    session : object
+        instantiated object from class Session in module session
+    
+    pub_socket : object
+        instantiated object from class Socket in module zmq
+        
+    Example:
+    self.display_hook = DisplayHook(self.session,self.pub_socket)
+    """
+ 
     def __init__(self, session, pub_socket):
         self.session = session
         self.pub_socket = pub_socket
         self.parent_header = {}
 
     def __call__(self, obj):
+        """ set this class callable to recieve and object and send it 
+        using sub channel like a string
+        
+        Note:this class send to the index of output in ipython
+        
+        Parameters
+        ----------
+        
+        obj : object
+            python or ipython code that is passed to string a sended     
+        """
         if obj is None:
             return
 
@@ -120,16 +200,75 @@ class DisplayHook(object):
         self.pub_socket.send_json(msg)
 
     def set_parent(self, parent):
+        """ this method put from a session the username and ids to send messages
+            
+            Parameters
+            ----------
+            parent : dict
+                dictionary that content username, msg_id, session(uuid) 
+        """        
         self.parent_header = extract_header(parent)
     def set_index(self,index):
-        self.index=index
+        """ let you set index of ipython output in the message
+                
+            Parameters
+            ----------
+            index : int
+                index of ipython output, taked from outputcache in InteractiveShell class 
+        
+        """
+        self.index = index
 
 
 
 class InteractiveShellKernel(InteractiveShell):
-    def __init__(self,session, reply_socket, pub_socket,request_socket):
+    """Kernel of ipython working with python-zmq
+        
+        NOTE: this class inherit from InteractiveShell to supoort all ipython's features
+        
+        Parameters:
+        ----------
+        session : object
+        instantiated object from class Session in module session
+        
+        xreply_socket : object
+            instantiated object from class Socket in module zmq type XREP (Reply)
+        
+        pub_socket : object
+            instantiated object from class Socket in module zmq type PUB (publisher)
+        
+        request_socket : object
+            instantiated object from class Socket in module zmq type REQ (request)
+            
+        Example:
+        --------
+        c = zmq.Context(1)
+        ip = '127.0.0.1'
+        port_base = 5555
+        connection = ('tcp://%s' % ip) + ':%i'
+        rep_conn = connection % port_base
+        pub_conn = connection % (port_base+1)
+        req_conn = connection % (port_base+2)
+        session = Session(username=u'kernel')
+ 
+ reply_socket = c.socket(zmq.XREP)
+        reply_socket.bind(rep_conn)
+        
+        pub_socket = c.socket(zmq.PUB)
+        pub_socket.bind(pub_conn)
+        
+        
+        request_socket = c.socket(zmq.REQ)
+        request_socket.bind(req_conn)
+        
+        kernel = InteractiveShellKernel(session, reply_socket, pub_socket, request_socket)
+        kernel.start()
+        
+        For more details, see the class docstring below.
+    """
+    def __init__(self,session, xreply_socket, pub_socket,request_socket):
         self.session = session
-        self.reply_socket = reply_socket
+        self.reply_socket = xreply_socket
         self.pub_socket = pub_socket
         self.request_socket = request_socket
         self.user_ns = {}
@@ -137,36 +276,37 @@ class InteractiveShellKernel(InteractiveShell):
         InteractiveShell.__init__(self,user_ns=self.user_ns,user_global_ns=self.user_ns)
         
         #getting outputs
-        self.stdout = OutStream(self.session, self.pub_socket,self.request_socket, u'stdout')
-        self.stderr = OutStream(self.session, self.pub_socket,self.request_socket, u'stderr')
-        #self.stdin  = OutStream(self.session, self.pub_socket,self.request_socket, u'stdin')
+        self.stdout = OutStream(self.session, self.pub_socket, u'stdout')
+        self.stderr = OutStream(self.session, self.pub_socket, u'stderr')
+        
         self._orig_stdout = sys.stdout
         self._orig_stderr = sys.stderr
         sys.stdout = self.stdout
         sys.stderr = self.stderr
         
         ##overloaded methods
-        self.runcode = self._runcode
-        self.push_line = self._push_line
-        self.system = self._system
         self.interact = self._interact
         __builtin__.raw_input = self._raw_input
         
         self.display_hook = DisplayHook(self.session,self.pub_socket)
         self.outputcache.__class__.display = self.display_hook
-        #self.display_trap = DisplayTrap(self, self.outputcache)
-        #self.InteractiveTB.out_stream=self.stderr
         self.init_readline()
         self.outputcache.promt_count = 1
         self.prompt_bk = self.outputcache.promt_count
         self.kernel_pid=os.getpid()
-        
+        self.system = self._system
         self.handlers = {}
         for msg_type in ['execute_request', 'complete_request','prompt_request','pid_request']:
             self.handlers[msg_type] = getattr(self, msg_type)
        
     def _system(self, cmd):
-        """Reimplementation of system, Make a system call, using IPython."""
+        """Reimplementation of system in ipython to capture pipe outputs
+        
+        Parameters
+        ----------
+        cmd : str
+             command to run into operating system
+        """
         self.pipe=Popen(cmd, shell=True, stdout=subprocess.PIPE,stderr=subprocess.PIPE)
         stdout_output=self.pipe.stdout.read()
         stderr_output=self.pipe.stderr.read()
@@ -187,12 +327,18 @@ class InteractiveShellKernel(InteractiveShell):
         from InteractiveShell class to InteractiveShellKernel
         Execute a code object.
 
-        When an exception occurs, self.showtraceback() is called to display a
+        Note: When an exception occurs, self.showtraceback() is called to display a
         traceback.
 
+        Parameters:
+        -----------
+        code_obj : str
+            code to execute
+        
+        Returns
+        -------
         Return value: a flag indicating whether the code to be run completed
         successfully:
-
           - 0: successful execution.
           - 1: an error occurred.
         """
@@ -203,7 +349,6 @@ class InteractiveShellKernel(InteractiveShell):
                 self.hooks.pre_runcode_hook()
                 exec code_obj in self.user_global_ns, self.user_ns
             finally:
-                # Reset our crash handler in place
                 sys.excepthook = old_excepthook
         except SystemExit:
            self.resetbuffer()
@@ -213,12 +358,19 @@ class InteractiveShellKernel(InteractiveShell):
             self.etype,self.value,self.tb = sys.exc_info()
             
     def _runlines(self,lines,clean=True):
-        """Run a string of one or more lines of source.
-
-        This method is capable of running a string containing multiple source
+        """ split lines in a single line before of execute 
+        
+        NOTE:This method is capable of running a string containing multiple source
         lines, as if they had been entered at the IPython prompt.  Since it
         exposes IPython's processing machinery, the given strings can contain
         magic calls (%magic), special shell access (!cmd), etc.
+        Parameters:
+        -----------
+        lines : tuple
+            contents python or ipython code
+        
+        clean :  Boolean
+            clean a internal buffer 
         """
 
         if isinstance(lines, (list, tuple)):
@@ -259,9 +411,9 @@ class InteractiveShellKernel(InteractiveShell):
                 
     
     def _push_line(self, line):
-        """ Reimplementation of Push a line to the interpreter.
+        """ Reimplementation of push_line method from InteractiveShell.
 
-        The line should not have a trailing newline; it may have
+        NOTE:The line should not have a trailing newline; it may have
         internal newlines.  The line is appended to a buffer and the
         interpreter's _runsource() "Reimplemented method too for kernel" method is called with the
         concatenated contents of the buffer as source.  If this
@@ -270,10 +422,18 @@ class InteractiveShellKernel(InteractiveShell):
         is left as it was after the line was appended.  The return
         value is 1 if more input is required, 0 if the line was dealt
         with in some way (this is the same as runsource()).
+        
+        Parameters:
+        -----------
+        line : str
+            ipython/python code
+        
+        Returns:
+        --------
+        True : if line is part of a block of code
+        False : if is a single line of code
         """
 
-
-        #print 'push line: <%s>' % line  # dbg
         for subline in line.splitlines():
             self._autoindent_update(subline)
         self.buffer.append(line)
@@ -283,6 +443,35 @@ class InteractiveShellKernel(InteractiveShell):
         return more
 
     def _runsource(self, source, filename='<input>', symbol='single'):
+        """ Reimplementation of runsource from InteractiveShell
+        Compile and run some source in the interpreter.
+
+
+        One several things can happen:
+
+        1) The input is incorrect; compile_command() raised an
+        exception (SyntaxError or OverflowError). A syntax traceback
+        will be printed by calling the showsyntaxerror() method.
+
+        2) The input is incomplete, and more input is required;
+        compile_command() returned None. Nothing happens.
+
+        3) The input is complete; compile_command() returned a code
+        object. The code is executed by calling self.runcode() (which
+        also handles run-time exceptions, except for SystemExit).
+
+        The return value is:
+
+        - True in case 2
+
+        - False in the other cases, unless an exception is raised, where
+        None is returned instead. This can be used by external callers to
+        know whether to continue feeding input or not.
+
+        The return value can be used to decide whether to use sys.ps1 or
+        sys.ps2 to prompt the next line.
+        
+        """
         source=source.encode(self.stdin_encoding)
         if source[:1] in [' ', '\t']:
             source = 'if 1:\n%s' % source
@@ -305,6 +494,25 @@ class InteractiveShellKernel(InteractiveShell):
             return None
     
     def _raw_input(self,message):
+        """ Method to overwrite raw_input in __builtin__.raw_input = self._raw_input
+        
+           this method use rep socket to send a message to frontend, it let know to frontend 
+           that need call raw_input and return string to kernel
+        
+        Parameters:
+        ----------
+        message : str
+             string with message to show in raw_input
+        
+        Returns:
+        --------
+        raw_input_msg : str
+            string that frontend send to kernel when call raw_input
+           
+        
+        """
+            
+            
         content = {u'name':'stdin', u'data':message}
         msg = self.session.msg(u'stream', content=content)
         #print>>sys.__stdout__,"MESSAGE = ", Message(msg)
@@ -346,7 +554,7 @@ class InteractiveShellKernel(InteractiveShell):
         self.display_hook.set_parent(parent)        
         try:
             code = parent[u'content'][u'code']
-            self.prompt_bk=self.outputcache.prompt_count
+            self.prompt_bk = self.outputcache.prompt_count
             self.outputcache.prompt_count = parent[u'content'][u'prompt']
             #self.outputcache.prompt_count = self.get_prompt()
             self.display_hook.set_index(parent[u'content'][u'prompt'])
@@ -361,10 +569,6 @@ class InteractiveShellKernel(InteractiveShell):
         pyin_msg = self.session.msg(u'pyin',{u'code':code}, parent=parent)
         self.pub_socket.send_json(pyin_msg)
         try:
-            #this command run source but it dont raise some exception
-            # then a need reimplement some InteractiveShell methods that let me 
-            # raise exc
-            #self.runlines(code)
             
             #we dont need compile code here,
             # because it is complied in frontend before send it
@@ -375,7 +579,7 @@ class InteractiveShellKernel(InteractiveShell):
             #self.outputcache.prompt_count = parent[u'content'][u'prompt']
             self._runlines(code)
             self.outputcache.prompt_count = self.prompt_bk
-            #self.outputcache.prompt_count = prompt_bk
+            
             
         except :
             result = u'error'
@@ -517,10 +721,8 @@ def launch_kernel(xrep_port=0, pub_port=0, req_port=0, independent=False):
     
         
          
-#if __name__ == "__main__" :
 def main():
     c = zmq.Context(1)
-
     ip = '127.0.0.1'
     port_base = 5555
     connection = ('tcp://%s' % ip) + ':%i'
@@ -543,18 +745,10 @@ def main():
     request_socket = c.socket(zmq.REQ)
     request_socket.bind(req_conn)
     
-    #stdout = OutStream(session, pub_socket, u'stdout')
-    #stderr = OutStream(session, pub_socket, u'stderr')
-    #sys.stdout = stdout
-    #sys.stderr = stderr
-    #display_hook = DisplayHook(session, pub_socket)
-    #sys.displayhook = display_hook
-
     kernel = InteractiveShellKernel(session, reply_socket, pub_socket, request_socket)
     
     print >>sys.__stdout__, "Use Ctrl-\\ (NOT Ctrl-C!) to terminate."
     kernel.start()
-    #kernel.test()
 
 if __name__ == "__main__" :
     main()   
