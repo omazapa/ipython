@@ -34,10 +34,15 @@ import time
 #-----------------------------------------------------------------------------
 # Imports from ipython
 #-----------------------------------------------------------------------------
-
+from IPython.utils.traitlets import (
+Int, Str, CBool, CaselessStrEnum, Enum, List, Unicode
+)
+from IPython.core.iplib import get_default_colors
+from IPython.core.excolors import exception_colors
+from IPython.utils import PyColorize
 from IPython.core.blockbreaker import BlockBreaker
 from kernelmanager import KernelManager
-from  IPython.zmq.session import Session
+from IPython.zmq.session import Session
 
 
 class Frontend(object):
@@ -65,10 +70,20 @@ class Frontend(object):
        self.reply_socket = self.km.rep_channel.socket
        
        
+       self.colors = CaselessStrEnum(('NoColor','LightBG','Linux'),
+                                      default_value=get_default_colors(), config=True)
+       self.pyformat = PyColorize.Parser().format
+       self.pycolorize = lambda src: self.pyformat(src,'str',self.colors)
+       self.ec = exception_colors()
+       self.ec.set_active_scheme('Linux')
+       self.ec.active_colors.keys()
+       
+       
        self.completer = completer.ClientCompleter(self,self.session,self.request_socket)
        rlcompleter.readline.parse_and_bind("tab: complete")
        rlcompleter.readline.parse_and_bind('set show-all-if-ambiguous on')
        rlcompleter.Completer = self.completer.complete
+       
        
        history_path = os.path.expanduser('~/.ipython/history')
        if os.path.isfile(history_path):
@@ -247,14 +262,14 @@ class Frontend(object):
                        
        
    def handle_reply(self, rep):
-       """ handler that have the status of the response and call the other handlers depending of it type to show the outputs.
+        """ handler that have the status of the response and call the other handlers depending of it type to show the outputs.
        
-       Parameters:
-       -----------
+           Parameters:
+           -----------
        
-       rep : dict
-           message that content the status of reply, the status can be ok, error or aborted       
-       """                 
+           rep : dict
+               message that content the status of reply, the status can be ok, error or aborted       
+        """                 
    
         # Handle any side effects on output channels
         self.recv_output()
@@ -342,7 +357,6 @@ class Frontend(object):
 
         # For foreground jobs, wait for reply
        while True:
-           #print "waiting recieve"
            rep = self.recv_reply()
            
            if rep is not None:

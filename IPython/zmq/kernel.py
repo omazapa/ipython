@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Kernel of ipython working with python-zmq
+"""Ipython's kernel working with python-zmq
 
 Ipython's kernel, is a ipython interface that listen in ports waiting for request.
 it use three socket's types XREP, SUB, REP that using standarized menssages let
-comunication between several frontends, allowing have a common enviroment into developers.
+comunication between several frontends, allowing have a common enviroment for developers.
 
 For more details, see the class docstring below.
 """
@@ -251,7 +251,7 @@ class InteractiveShellKernel(InteractiveShell):
         req_conn = connection % (port_base+2)
         session = Session(username=u'kernel')
  
- reply_socket = c.socket(zmq.XREP)
+        reply_socket = c.socket(zmq.XREP)
         reply_socket.bind(rep_conn)
         
         pub_socket = c.socket(zmq.PUB)
@@ -264,7 +264,6 @@ class InteractiveShellKernel(InteractiveShell):
         kernel = InteractiveShellKernel(session, reply_socket, pub_socket, request_socket)
         kernel.start()
         
-        For more details, see the class docstring below.
     """
     def __init__(self,session, xreply_socket, pub_socket,request_socket):
         self.session = session
@@ -284,22 +283,19 @@ class InteractiveShellKernel(InteractiveShell):
         sys.stdout = self.stdout
         sys.stderr = self.stderr
         
-        ##overloaded methods
-        self.interact = self._interact
+        ##overloaded raw_input
         __builtin__.raw_input = self._raw_input
         
         self.display_hook = DisplayHook(self.session,self.pub_socket)
         self.outputcache.__class__.display = self.display_hook
         self.init_readline()
         self.outputcache.promt_count = 1
-        self.prompt_bk = self.outputcache.promt_count
         self.kernel_pid=os.getpid()
-        self.system = self._system
         self.handlers = {}
         for msg_type in ['execute_request', 'complete_request','prompt_request','pid_request']:
             self.handlers[msg_type] = getattr(self, msg_type)
        
-    def _system(self, cmd):
+    def system(self, cmd):
         """Reimplementation of system in ipython to capture pipe outputs
         
         Parameters
@@ -320,9 +316,8 @@ class InteractiveShellKernel(InteractiveShell):
             for stderr in stderr_output.split('\n'):
                 if stderr.__len__() != 0:    
                     print >> self.stderr,stderr
-        
     
-    def _runcode(self,code_obj):
+    def runcode(self,code_obj):
         """This method is a reimplementation of method runcode 
         from InteractiveShell class to InteractiveShellKernel
         Execute a code object.
@@ -357,7 +352,7 @@ class InteractiveShellKernel(InteractiveShell):
         except self.custom_exceptions:
             self.etype,self.value,self.tb = sys.exc_info()
             
-    def _runlines(self,lines,clean=True):
+    def runlines(self,lines,clean=True):
         """ split lines in a single line before of execute 
         
         NOTE:This method is capable of running a string containing multiple source
@@ -395,7 +390,7 @@ class InteractiveShellKernel(InteractiveShell):
                     # push to raw history, so hist line numbers stay in sync
                     self.input_hist_raw.append("# " + line + "\n")
                     prefiltered = self.prefilter_manager.prefilter_lines(line,more)
-                    more = self._push_line(prefiltered)
+                    more = self.push_line(prefiltered)
                     # IPython's runsource returns None if there was an error
                     # compiling the code.  This allows us to stop processing right
                     # away, so the user gets the error message at the right place.
@@ -407,10 +402,10 @@ class InteractiveShellKernel(InteractiveShell):
             # actually does get executed
             
             if more:
-                self._push_line('\n')
+                self.push_line('\n')
                 
     
-    def _push_line(self, line):
+    def push_line(self, line):
         """ Reimplementation of push_line method from InteractiveShell.
 
         NOTE:The line should not have a trailing newline; it may have
@@ -437,12 +432,12 @@ class InteractiveShellKernel(InteractiveShell):
         for subline in line.splitlines():
             self._autoindent_update(subline)
         self.buffer.append(line)
-        more = self._runsource('\n'.join(self.buffer), self.filename)
+        more = self.runsource('\n'.join(self.buffer), self.filename)
         if not more:
             self.resetbuffer()
         return more
 
-    def _runsource(self, source, filename='<input>', symbol='single'):
+    def runsource(self, source, filename='<input>', symbol='single'):
         """ Reimplementation of runsource from InteractiveShell
         Compile and run some source in the interpreter.
 
@@ -488,7 +483,7 @@ class InteractiveShellKernel(InteractiveShell):
         # buffer attribute as '\n'.join(self.buffer).
         self.code_to_run = code
         # now actually execute the code object
-        if self._runcode(code) == 0:
+        if self.runcode(code) == 0:
             return False
         else:
             return None
@@ -526,6 +521,9 @@ class InteractiveShellKernel(InteractiveShell):
         return raw_input_msg
     
     def abort_queue(self):
+        """ send a message when queue in kernel was aborted
+            to let know to kernel that ir can continue with other request
+        """
         while True:
             try:
                 ident = self.reply_socket.recv(zmq.NOBLOCK)
@@ -549,15 +547,25 @@ class InteractiveShellKernel(InteractiveShell):
             time.sleep(0.1)
 
     def execute_request(self, ident, parent):
-        #send messages for current user
-        #self.outputcache.prompt_count = parent[u'content'][u'prompt']
-        self.display_hook.set_parent(parent)        
+        """ Execute requests gotten from frontends and proccess the handlers
+            to generated messages with outputs and send it to frontend.
+            this method let know to frontend the prompt's index. 
+        
+        Parameters:
+        -----------
+        ident : str
+             string with uuid of user in frontend.
+        
+        parent : dict
+             dictionary that content all needed information to proccess code
+             associated a specific user.
+             
+        """
         try:
+            self.display_hook.set_parent(parent)        
             code = parent[u'content'][u'code']
-            self.prompt_bk = self.outputcache.prompt_count
-            self.outputcache.prompt_count = parent[u'content'][u'prompt']
-            #self.outputcache.prompt_count = self.get_prompt()
-            self.display_hook.set_index(parent[u'content'][u'prompt'])
+            self.current_prompt=parent[u'content'][u'prompt']
+            self.display_hook.set_index(self.current_prompt)
             
         except:
             print>>sys.__stderr__, "Got bad msg: "
@@ -575,11 +583,7 @@ class InteractiveShellKernel(InteractiveShell):
             #self.user_ns and self.user_global_ns are inherited from InteractiveShell the Mother class
             
             self.hooks.pre_runcode_hook()
-            #prompt_bk=self.outputcache.prompt_count
-            #self.outputcache.prompt_count = parent[u'content'][u'prompt']
-            self._runlines(code)
-            self.outputcache.prompt_count = self.prompt_bk
-            
+            self.runlines(code)
             
         except :
             result = u'error'
@@ -605,6 +609,19 @@ class InteractiveShellKernel(InteractiveShell):
             self.abort_queue()
 
     def complete_request(self, ident, parent):
+        """ Execute requests to readline, this let get tab-completion
+        reading the namespace from kernel
+        
+        Parameters:
+        -----------
+        ident : str
+             string with uuid of user in frontend.
+        
+        parent : dict
+             dictionary that content all needed information to proccess code
+             associated a specific user.
+             
+        """    
         matches = {'matches' : self.complete(parent),
                    'status' : 'ok'}
         completion_msg = self.session.send(self.reply_socket, 'complete_reply',
@@ -612,26 +629,71 @@ class InteractiveShellKernel(InteractiveShell):
         print >> sys.__stdout__, completion_msg
     
     def prompt_request(self,ident,parent):
-            self.outputcache.prompt_count = self.outputcache.prompt_count+1
-            prompt_msg = {u'prompt':self.outputcache.prompt_count,
-                           'status':'ok'}    
-            self.session.send(self.reply_socket, 'prompt_reply',prompt_msg, parent, ident)
+        """ Execute requests to get the number to frontend's index,
+        like a In[index]:; when init the frontend, it call this request 
+        to get the current index in kernel.  
+        
+        Parameters:
+        -----------
+        ident : str
+             string with uuid of user in frontend.
+        
+        parent : dict
+             dictionary that content all needed information to proccess code
+             associated a specific user.
+             
+        """
+        self.outputcache.prompt_count = self.outputcache.prompt_count+1
+        prompt_msg = {u'prompt':self.outputcache.prompt_count,
+                       'status':'ok'}    
+        self.session.send(self.reply_socket, 'prompt_reply',prompt_msg, parent, ident)
             
     def pid_request(self,ident,parent):
-            pid_msg = {u'pid':self.kernel_pid,
-                     'status':'ok'}
-            self.session.send(self.reply_socket, 'pid_reply',pid_msg, parent, ident)
+        """ request to get the kernel`s pid, to enable shortcut Crt+C
+        with a signal of interruption, while a bucles are running.  
+        
+        Parameters:
+        -----------
+        ident : str
+             string with uuid of user in frontend.
+        
+        parent : dict
+             dictionary that content all needed information to proccess code
+             associated a specific user.
+             
+        """
+        pid_msg = {u'pid':self.kernel_pid,
+                  'status':'ok'}
+        self.session.send(self.reply_socket, 'pid_reply',pid_msg, parent, ident)
             
             
     
     def complete(self, msg):
-        #return self.completer.complete(msg.content.line, msg.content.text)<-- code
-        #we dont need KernelCompleter, we can use IPCompleter object inherited
-        #from InteractiveShell and suppurt magics etc... Omar.
+        """ method that call local readline and return the results
+            
+            Parameters:
+            -----------
+            msg : dict
+                 msg.content.line is string with word to complete
+            
+            Returns:
+            --------
+            dict
+            matches found 
+            
+        """
+        
         return self.Completer.all_completions(msg.content.line)
 
 
-    def _interact(self):
+    def interact(self):
+        """ this method wait a request to be proccessed.
+        
+        when it get a message, call the differents handlers to proccess information using
+        socket sub to send stdout/stderr outputs and reply to send message's status.
+            
+        """
+            
         ident = self.reply_socket.recv()
         assert self.reply_socket.rcvmore(), "Unexpected missing message part."
         msg = self.reply_socket.recv_json()
@@ -646,6 +708,8 @@ class InteractiveShellKernel(InteractiveShell):
             
 
     def start(self):
+        """Call interact to stay wating request ever
+        """
         while True:
             self.interact()
             
