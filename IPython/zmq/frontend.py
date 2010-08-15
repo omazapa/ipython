@@ -382,9 +382,14 @@ class Frontend(object):
        rep_msg : dict
            dictionary that content the status of execution (ok, error, aborted)
        """
-       omsg = self.session.send(self.request_socket,'execute_request', dict(code=code))
+       code=dict(code=src)
+       code['prompt'] = self.prompt_count
+       omsg = self.session.send(self.request_socket,'execute_request', code)
        self.messages[omsg.header.msg_id] = omsg
-       rep_msg = self.request_socket.recv_json()
+       while True:
+           rep_msg = self.request_socket.recv_json()
+           if rep_msg in not None:
+               break    
        return rep_msg
        
    def recv_noninteractive_reply(self):

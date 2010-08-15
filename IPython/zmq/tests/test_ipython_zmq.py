@@ -1,15 +1,19 @@
 # -*- coding: utf-8 -*-
 import sys
-from IPython.zmq.frontend import InteractiveShellFrontend
+from IPython.zmq.frontend import Frontend
 from IPython.zmq.kernel   import InteractiveShellKernel, OutStream, DisplayHook
 from IPython.zmq.session import Session
+from IPython.zmq.kernelmanager import KernelManager
 import nose.tools as nt
 import zmq, time
 from threading import Thread
 orig_stdout = sys.stdout
 orig_stderr = sys.stderr
 
-def kernel():
+kernel = None
+frontend = None
+
+def kernel_connection():
    c = zmq.Context(1)
      
    ip = '127.0.0.1'
@@ -34,53 +38,51 @@ def kernel():
    request_socket = c.socket(zmq.REQ)
    request_socket.bind(req_conn)
         
-   kern = InteractiveShellKernel(session, reply_socket, pub_socket,request_socket)
-   #init kernel but just wait one request and stop
-   kern.interact()
-        
+   kernel = InteractiveShellKernel(session, reply_socket, pub_socket,request_socket) 
+   #kernel.interact()
+   kernel.start()
+
+def test_start_kernel():
+   thread=Thread(target=kernel_connection)
+   thread.start()     
         
 
 def test_ipython_zmq():
-   # init kernel test in a thread
-   thread=Thread(target=kernel)
-   thread.start()
+   
    #wait that kernel start
    time.sleep(5)
-      
-   ip = '127.0.0.1'
-   print >> orig_stdout, ip
+   xreq_addr = ('127.0.0.1',5555)
+   sub_addr = ('127.0.0.1', 5556)
+   rep_addr = ('127.0.0.1', 5557)
+   context = zmq.Context()
+   session = Session()
    
-   port_base = 5555
-   connection = ('tcp://%s' % ip) + ':%i'
-   req_conn = connection % port_base
-   sub_conn = connection % (port_base+1)
-   rep_conn = connection % (port_base+2)
-
-   # Create initial sockets
-   c = zmq.Context(1)
-   request_socket = c.socket(zmq.XREQ)
-   request_socket.connect(req_conn)
-
-   sub_socket = c.socket(zmq.SUB)
-   sub_socket.connect(sub_conn)
-   sub_socket.setsockopt(zmq.SUBSCRIBE, '')
-
-   reply_socket = c.socket(zmq.REP)
-   reply_socket.connect(rep_conn)
-
+   km = KernelManager(xreq_addr, sub_addr, rep_addr,context,None)
+   
    # Make session and user-facing client
-   sess = Session()  
-   frontend=InteractiveShellFrontend('<zmq-console>',sess,request_socket=request_socket,subscribe_socket=sub_socket,reply_socket=reply_socket)
+   frontend=Frontend(km)   
    code="print 'hello'"
+   print >>orig_stdout,"Sending Message"
+   #frontend.runcode(code)
    reply_msg = frontend.send_noninteractive_request(code)
+   reply_msg = frontend.recv_noninteractive_reply()
    pyin_msg = frontend.recv_noninteractive_reply()
    output_msg = frontend.recv_noninteractive_reply()
-        
+   print >>orig_stdout,"Recieved Message"
+   print >>orig_stdout, reply_msg
+   print >>orig_stdout, output_msg
    #test if status of message is ok using nose.tools
    nt.assert_equals(reply_msg['content']['status'],'ok')
    nt.assert_equals(pyin_msg['content']['code'],code)
    nt.assert_equals(output_msg['content']['data'],'hello')
+   print >> orig_stdout,"Test passed"
+
+def test_stop_kernel():
+   kernel.stop()     
 
 if __name__ == "__main__" :
-        test_ipython_zmq()
+   test_start_kernel()       
+   test_ipython_zmq()
+   #test_stop_kernel()
+   #test_stop_kernel()
 
