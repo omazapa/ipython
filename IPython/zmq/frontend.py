@@ -82,7 +82,6 @@ class Frontend(object):
        rlcompleter.readline.parse_and_bind("tab: complete")
        rlcompleter.readline.parse_and_bind('set show-all-if-ambiguous on')
        rlcompleter.Completer = self.completer.complete
-      
        
        history_path = os.path.expanduser('~/.ipython/history')
        if os.path.isfile(history_path):
