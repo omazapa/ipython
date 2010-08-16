@@ -26,7 +26,6 @@ import uuid
 import cPickle as pickle
 import code
 import zmq
-import completer
 import rlcompleter
 import time
 
@@ -43,7 +42,7 @@ from IPython.utils import PyColorize
 from IPython.core.blockbreaker import BlockBreaker
 from kernelmanager import KernelManager
 from IPython.zmq.session import Session
-
+from IPython.zmq import completer
 
 class Frontend(object):
    """ this class is a simple frontend to ipython-zmq 
@@ -83,7 +82,7 @@ class Frontend(object):
        rlcompleter.readline.parse_and_bind("tab: complete")
        rlcompleter.readline.parse_and_bind('set show-all-if-ambiguous on')
        rlcompleter.Completer = self.completer.complete
-       
+      
        
        history_path = os.path.expanduser('~/.ipython/history')
        if os.path.isfile(history_path):
@@ -97,7 +96,8 @@ class Frontend(object):
        self.kernel_pid = None
        self.get_kernel_pid()
        self.prompt_count = 0
-       self.prompt_count = self.get_prompt()  
+       self.prompt_count = self.get_prompt()
+       self.backgrounded = 0
         
    def interact(self):
        """ let you get input from console using inputsplitter, then
@@ -119,7 +119,10 @@ class Frontend(object):
            print('\nKeyboardInterrupt\n')    
            pass
    def kernel_stop(self):
-       self.send_kernel_signal(signal.SIGQUIT);
+       self.send_kernel_signal(signal.SIGQUIT)
+   
+   def interrupt(self):
+       self.send_kernel_signal(signal.SIGINT)
        
    def send_kernel_signal(self,signal_type):
        os.kill(self.kernel_pid,signal_type)    
@@ -263,7 +266,7 @@ class Frontend(object):
                    break
                self.handle_output(omsg)
            except KeyboardInterrupt:
-                os.kill(self.kernel_pid,int(signal.SIGINT))
+                self.interrupt()
                 break
                        
        

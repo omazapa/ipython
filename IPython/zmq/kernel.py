@@ -531,7 +531,7 @@ class InteractiveShellKernel(InteractiveShell):
                 msg = self.reply_socket.recv_json()
                 #print "message here :"+msg
             print>>sys.__stdout__, "Aborting:"
-            print>>sys.__stdout__, Message(msg)
+            #print>>sys.__stdout__, Message(msg)
             msg_type = msg['msg_type']
             reply_type = msg_type.split('_')[0] + '_reply'
             reply_msg = self.session.msg(reply_type, {'status' : 'aborted'}, msg)
@@ -597,7 +597,7 @@ class InteractiveShellKernel(InteractiveShell):
             reply_content = {'status' : 'ok'}
             
         reply_msg = self.session.msg(u'execute_reply', reply_content, parent)
-        print>>sys.__stdout__, Message(reply_msg)
+        #print>>sys.__stdout__, Message(reply_msg)
         self.reply_socket.send(ident, zmq.SNDMORE)
         self.reply_socket.send_json(reply_msg)
         if reply_msg['content']['status'] == u'error':
@@ -621,7 +621,7 @@ class InteractiveShellKernel(InteractiveShell):
                    'status' : 'ok'}
         completion_msg = self.session.send(self.reply_socket, 'complete_reply',
                                            matches, parent, ident)
-        print >> sys.__stdout__, completion_msg
+        #print >> sys.__stdout__, completion_msg
     
     def prompt_request(self,ident,parent):
         """ Execute requests to get the number to frontend's index,
@@ -693,7 +693,7 @@ class InteractiveShellKernel(InteractiveShell):
         assert self.reply_socket.rcvmore(), "Unexpected missing message part."
         msg = self.reply_socket.recv_json()
         omsg = Message(msg)
-        print>>sys.__stdout__, omsg
+        #print>>sys.__stdout__, omsg
         handler = self.handlers.get(omsg.msg_type, None)
         if handler is None:
             print >> sys.__stderr__, "UNKNOWN MESSAGE TYPE:", omsg
