@@ -118,6 +118,12 @@ class Frontend(object):
        except  KeyboardInterrupt:
            print('\nKeyboardInterrupt\n')    
            pass
+   def kernel_stop(self):
+       self.send_kernel_signal(signal.SIGQUIT);
+       
+   def send_kernel_signal(self,signal_type):
+       os.kill(self.kernel_pid,signal_type)    
+       
    def start(self):
        """ init a bucle that call interact method to get code.
        
@@ -382,13 +388,13 @@ class Frontend(object):
        rep_msg : dict
            dictionary that content the status of execution (ok, error, aborted)
        """
-       code=dict(code=src)
+       code=dict(code=code)
        code['prompt'] = self.prompt_count
        omsg = self.session.send(self.request_socket,'execute_request', code)
        self.messages[omsg.header.msg_id] = omsg
        while True:
            rep_msg = self.request_socket.recv_json()
-           if rep_msg in not None:
+           if rep_msg is not None:
                break    
        return rep_msg
        
@@ -407,7 +413,7 @@ class Frontend(object):
        output_msg = self.session.recv(self.sub_socket)
        return output_msg
        
-def main():
+def start_frontend():
     """ function that start a kernel with default parameters 
     """
     # Defaults
@@ -424,4 +430,4 @@ def main():
     frontend.start()
 
 if __name__ == "__main__" :
-     main()   
+     start_frontend()   

@@ -510,14 +510,10 @@ class InteractiveShellKernel(InteractiveShell):
             
         content = {u'name':'stdin', u'data':message}
         msg = self.session.msg(u'stream', content=content)
-        #print>>sys.__stdout__,"MESSAGE = ", Message(msg)
         self.pub_socket.send_json(msg)            
-        #print("raw_input called")
         time.sleep(0.05)
         self.request_socket.send_json(message)
-        #print("message was sended")
         raw_input_msg = self.request_socket.recv_json()
-        #print("message was recved")
         return raw_input_msg
     
     def abort_queue(self):
@@ -533,13 +529,12 @@ class InteractiveShellKernel(InteractiveShell):
             else:
                 assert self.reply_socket.rcvmore(), "Unexpected missing message part."
                 msg = self.reply_socket.recv_json()
-                print "message here :"+msg
+                #print "message here :"+msg
             print>>sys.__stdout__, "Aborting:"
             print>>sys.__stdout__, Message(msg)
             msg_type = msg['msg_type']
             reply_type = msg_type.split('_')[0] + '_reply'
             reply_msg = self.session.msg(reply_type, {'status' : 'aborted'}, msg)
-            print>>sys.__stdout__, Message(reply_msg)
             self.reply_socket.send(ident,zmq.SNDMORE)
             self.reply_socket.send_json(reply_msg)
             # We need to wait a bit for requests to come in. This can probably
@@ -705,8 +700,6 @@ class InteractiveShellKernel(InteractiveShell):
         else:
             handler(ident, omsg)    
       
-            
-
     def start(self):
         """Call interact to stay wating request ever
         """
