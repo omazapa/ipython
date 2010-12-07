@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
 """A simple interactive kernel that talks to a frontend over 0MQ.
 
 Things to do:

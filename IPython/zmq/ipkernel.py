@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
 """A simple interactive kernel that talks to a frontend over 0MQ.
 
 Things to do:
@@ -30,7 +31,8 @@ from IPython.config.configurable import Configurable
 from IPython.utils import io
 from IPython.utils.jsonutil import json_clean
 from IPython.lib import pylabtools
-from IPython.utils.traitlets import Instance, Float
+from IPython.utils.traitlets import Instance, Float 
+from IPython.utils.iplogging import IpLogging, IpStreamHandler, IpLogger
 from entry_point import (base_launch_kernel, make_argument_parser, make_kernel,
                          start_kernel)
 from iostream import OutStream
@@ -91,7 +93,6 @@ class Kernel(Configurable):
         self.shell = ZMQInteractiveShell.instance()
         self.shell.displayhook.session = self.session
         self.shell.displayhook.pub_socket = self.pub_socket
-
         # TMP - hack while developing
         self.shell._reply_content = None
 
@@ -102,6 +103,7 @@ class Kernel(Configurable):
         self.handlers = {}
         for msg_type in msg_types:
             self.handlers[msg_type] = getattr(self, msg_type)
+
 
     def do_one_iteration(self):
         """Do one iteration of the kernel's evaluation loop.
@@ -122,21 +124,23 @@ class Kernel(Configurable):
         # easier to trace visually the message chain when debugging.  Each
         # handler prints its message at the end.
         # Eventually we'll move these from stdout to a logger.
-        io.raw_print('\n*** MESSAGE TYPE:', msg['msg_type'], '***')
-        io.raw_print('   Content: ', msg['content'],
-                     '\n   --->\n   ', sep='', end='')
+        
+        #IpLogging.debug('\n*** MESSAGE TYPE:', msg['msg_type'], '***',
+                        #'   Content: ', msg['content'],
+                        #'\n   --->\n   ', sep='', end=''
+                        #)             
 
         # Find and call actual handler for message
         handler = self.handlers.get(msg['msg_type'], None)
         if handler is None:
-            io.raw_print_err("UNKNOWN MESSAGE TYPE:", msg)
+            IpLogging.error("UNKNOWN MESSAGE TYPE:", msg)
         else:
             handler(ident, msg)
             
         # Check whether we should exit, in case the incoming message set the
         # exit flag on
         if self.shell.exit_now:
-            io.raw_print('\nExiting IPython kernel...')
+            IpLogging.debug('\nExiting IPython kernel...')
             # We do a normal, clean exit, which allows any actions registered
             # via atexit (such as history saving) to take place.
             sys.exit(0)
@@ -186,8 +190,8 @@ class Kernel(Configurable):
             code = content[u'code']
             silent = content[u'silent'] 
         except:
-            io.raw_print_err("Got bad msg: ")
-            io.raw_print_err(Message(parent))
+            IpLogging.error("Got bad msg: ")
+            IpLogging.error(Message(parent))
             return
 
         shell = self.shell # we'll need this a lot here
@@ -265,7 +269,7 @@ class Kernel(Configurable):
 
         # Send the reply.
         reply_msg = self.session.msg(u'execute_reply', reply_content, parent)
-        io.raw_print(reply_msg)
+        IpLogging.debug(reply_msg)
 
         # Flush output before sending the reply.
         sys.stdout.flush()
@@ -295,7 +299,7 @@ class Kernel(Configurable):
                    'status' : 'ok'}
         completion_msg = self.session.send(self.reply_socket, 'complete_reply',
                                            matches, parent, ident)
-        io.raw_print(completion_msg)
+        IpLogging.debug(completion_msg)
 
     def object_info_request(self, ident, parent):
         object_info = self.shell.object_inspect(parent['content']['oname'])
@@ -303,7 +307,7 @@ class Kernel(Configurable):
         oinfo = json_clean(object_info)
         msg = self.session.send(self.reply_socket, 'object_info_reply',
                                 oinfo, parent, ident)
-        io.raw_print(msg)
+        IpLogging.debug(msg)
 
     def history_request(self, ident, parent):
         output = parent['content']['output']
@@ -313,7 +317,7 @@ class Kernel(Configurable):
         content = {'history' : hist}
         msg = self.session.send(self.reply_socket, 'history_reply',
                                 content, parent, ident)
-        io.raw_print(msg)
+        IpLogging.debug(msg)
 
     def connect_request(self, ident, parent):
         if self._recorded_ports is not None:
@@ -322,7 +326,7 @@ class Kernel(Configurable):
             content = {}
         msg = self.session.send(self.reply_socket, 'connect_reply',
                                 content, parent, ident)
-        io.raw_print(msg)
+        IpLogging.debug(msg)
 
     def shutdown_request(self, ident, parent):
         self.shell.exit_now = True
@@ -344,11 +348,11 @@ class Kernel(Configurable):
                 assert self.reply_socket.rcvmore(), \
                        "Unexpected missing message part."
                 msg = self.reply_socket.recv_json()
-            io.raw_print("Aborting:\n", Message(msg))
+            IpLogging.debug("Aborting:\n", Message(msg))
             msg_type = msg['msg_type']
             reply_type = msg_type.split('_')[0] + '_reply'
             reply_msg = self.session.msg(reply_type, {'status' : 'aborted'}, msg)
-            io.raw_print(reply_msg)
+            IpLogging.debug(reply_msg)
             self.reply_socket.send(ident,zmq.SNDMORE)
             self.reply_socket.send_json(reply_msg)
             # We need to wait a bit for requests to come in. This can probably
@@ -370,8 +374,8 @@ class Kernel(Configurable):
         try:
             value = reply['content']['value']
         except:
-            io.raw_print_err("Got bad raw_input reply: ")
-            io.raw_print_err(Message(parent))
+            IpLogging.error("Got bad raw_input reply: ")
+            IpLogging.error(Message(parent))
             value = ''
         return value
     
@@ -425,7 +429,7 @@ class Kernel(Configurable):
         if self._shutdown_message is not None:
             self.reply_socket.send_json(self._shutdown_message)
             self.pub_socket.send_json(self._shutdown_message)
-            io.raw_print(self._shutdown_message)
+            IpLogging.debug(self._shutdown_message)
             # A very short sleep to give zmq time to flush its message buffers
             # before Python truly shuts down.
             time.sleep(0.01)
