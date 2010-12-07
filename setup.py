@@ -6,12 +6,16 @@ Under Posix environments it works like a typical setup.py script.
 Under Windows, the command sdist is not supported, since IPython 
 requires utilities which are not available under Windows."""
 
-#-------------------------------------------------------------------------------
-#  Copyright (C) 2008  The IPython Development Team
+#-----------------------------------------------------------------------------
+#  Copyright (c) 2008-2010, IPython Development Team.
+#  Copyright (c) 2001-2007, Fernando Perez <fernando.perez@colorado.edu>
+#  Copyright (c) 2001, Janko Hauser <jhauser@zscout.de>
+#  Copyright (c) 2001, Nathaniel Gray <n8gray@caltech.edu>
 #
-#  Distributed under the terms of the BSD License.  The full license is in
-#  the file COPYING, distributed as part of this software.
-#-------------------------------------------------------------------------------
+#  Distributed under the terms of the Modified BSD License.
+#
+#  The full license is in the file COPYING.txt, distributed with this software.
+#-----------------------------------------------------------------------------
 
 #-----------------------------------------------------------------------------
 # Minimal Python version sanity check
@@ -21,14 +25,14 @@ import sys
 
 # This check is also made in IPython/__init__, don't forget to update both when
 # changing Python version requirements.
-if sys.version[0:3] < '2.5':
+if sys.version[0:3] < '2.6':
     error = """\
-ERROR: 'IPython requires Python Version 2.5 or above.'
+ERROR: 'IPython requires Python Version 2.6 or above.'
 Exiting."""
     print >> sys.stderr, error
     sys.exit(1)
 
-# At least we're on Python 2.5 or newer, move on.
+# At least we're on the python version we need, move on.
 
 #-------------------------------------------------------------------------------
 # Imports
@@ -55,7 +59,8 @@ from setupbase import (
     find_package_data, 
     find_scripts,
     find_data_files,
-    check_for_dependencies
+    check_for_dependencies,
+    record_commit_info,
 )
 
 isfile = os.path.isfile
@@ -207,12 +212,12 @@ if 'setuptools' in sys.modules:
     setuptools_extra_args['zip_safe'] = False
     setuptools_extra_args['entry_points'] = {
         'console_scripts': [
-            'ipython = IPython.core.ipapp:launch_new_instance',
+            'ipython = IPython.frontend.terminal.ipapp:launch_new_instance',
+            'ipython-qtconsole = IPython.frontend.qt.console.ipythonqt:main',
             'pycolor = IPython.utils.PyColorize:main',
             'ipcontroller = IPython.kernel.ipcontrollerapp:launch_new_instance',
             'ipengine = IPython.kernel.ipengineapp:launch_new_instance',
             'ipcluster = IPython.kernel.ipclusterapp:launch_new_instance',
-            'ipythonx = IPython.frontend.wx.ipythonx:main',
             'iptest = IPython.testing.iptest:main',
             'irunner = IPython.lib.irunner:main'
         ]
@@ -227,8 +232,6 @@ if 'setuptools' in sys.modules:
         test='nose>=0.10.1',
         security='pyOpenSSL>=0.6'
     )
-    # Allow setuptools to handle the scripts
-    scripts = []
 else:
     # If we are running without setuptools, call this function which will
     # check for dependencies an inform the user what is needed.  This is
@@ -239,6 +242,7 @@ else:
 # Do the actual setup now
 #---------------------------------------------------------------------------
 
+setup_args['cmdclass'] = {'build_py': record_commit_info('IPython')}
 setup_args['packages'] = packages
 setup_args['package_data'] = package_data
 setup_args['scripts'] = scripts

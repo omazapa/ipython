@@ -31,12 +31,12 @@ import re
 
 from IPython.core.alias import AliasManager
 from IPython.core.autocall import IPyAutocall
-from IPython.core.component import Component
+from IPython.config.configurable import Configurable
 from IPython.core.splitinput import split_user_input
-from IPython.core.page import page
+from IPython.core import page
 
-from IPython.utils.traitlets import List, Int, Any, Str, CBool, Bool
-from IPython.utils.io import Term
+from IPython.utils.traitlets import List, Int, Any, Str, CBool, Bool, Instance
+import IPython.utils.io
 from IPython.utils.text import make_quoted_expr
 from IPython.utils.autoattr import auto_attr
 
@@ -169,7 +169,7 @@ class LineInfo(object):
 #-----------------------------------------------------------------------------
 
 
-class PrefilterManager(Component):
+class PrefilterManager(Configurable):
     """Main prefilter component.
 
     The IPython prefilter is run on all user input before it is run.  The
@@ -210,18 +210,14 @@ class PrefilterManager(Component):
     """
 
     multi_line_specials = CBool(True, config=True)
+    shell = Instance('IPython.core.interactiveshell.InteractiveShellABC')
 
-    def __init__(self, parent, config=None):
-        super(PrefilterManager, self).__init__(parent, config=config)
+    def __init__(self, shell=None, config=None):
+        super(PrefilterManager, self).__init__(shell=shell, config=config)
+        self.shell = shell
         self.init_transformers()
         self.init_handlers()
         self.init_checkers()
-
-    @auto_attr
-    def shell(self):
-        return Component.get_instances(
-            root=self.root,
-            klass='IPython.core.iplib.InteractiveShell')[0]
 
     #-------------------------------------------------------------------------
     # API for managing transformers
@@ -231,7 +227,9 @@ class PrefilterManager(Component):
         """Create the default transformers."""
         self._transformers = []
         for transformer_cls in _default_transformers:
-            transformer_cls(self, config=self.config)
+            transformer_cls(
+                shell=self.shell, prefilter_manager=self, config=self.config
+            )
 
     def sort_transformers(self):
         """Sort the transformers by priority.
@@ -239,7 +237,7 @@ class PrefilterManager(Component):
         This must be called after the priority of a transformer is changed.
         The :meth:`register_transformer` method calls this automatically.
         """
-        self._transformers.sort(cmp=lambda x,y: x.priority-y.priority)
+        self._transformers.sort(key=lambda x: x.priority)
 
     @property
     def transformers(self):
@@ -265,7 +263,9 @@ class PrefilterManager(Component):
         """Create the default checkers."""
         self._checkers = []
         for checker in _default_checkers:
-            checker(self, config=self.config)
+            checker(
+                shell=self.shell, prefilter_manager=self, config=self.config
+            )
 
     def sort_checkers(self):
         """Sort the checkers by priority.
@@ -273,7 +273,7 @@ class PrefilterManager(Component):
         This must be called after the priority of a checker is changed.
         The :meth:`register_checker` method calls this automatically.
         """
-        self._checkers.sort(cmp=lambda x,y: x.priority-y.priority)
+        self._checkers.sort(key=lambda x: x.priority)
 
     @property
     def checkers(self):
@@ -300,7 +300,9 @@ class PrefilterManager(Component):
         self._handlers = {}
         self._esc_handlers = {}
         for handler in _default_handlers:
-            handler(self, config=self.config)
+            handler(
+                shell=self.shell, prefilter_manager=self, config=self.config
+            )
 
     @property
     def handlers(self):
@@ -371,10 +373,6 @@ class PrefilterManager(Component):
         # print "prefilter_line: ", line, continue_prompt
         # All handlers *must* return a value, even if it's blank ('').
 
-        # Lines are NOT logged here. Handlers should process the line as
-        # needed, update the cache AND log it (so that the input cache array
-        # stays synced).
-
         # save the line away in case we crash, so the post-mortem handler can
         # record it
         self.shell._last_input_line = line
@@ -403,7 +401,7 @@ class PrefilterManager(Component):
         normal_handler = self.get_handler_by_name('normal')
         if not stripped:
             if not continue_prompt:
-                self.shell.outputcache.prompt_count -= 1
+                self.shell.displayhook.prompt_count -= 1
 
             return normal_handler.handle(line_info)
 
@@ -445,27 +443,21 @@ class PrefilterManager(Component):
 #-----------------------------------------------------------------------------
 
 
-class PrefilterTransformer(Component):
+class PrefilterTransformer(Configurable):
     """Transform a line of user input."""
 
     priority = Int(100, config=True)
-    shell = Any
-    prefilter_manager = Any
+    # Transformers don't currently use shell or prefilter_manager, but as we
+    # move away from checkers and handlers, they will need them.
+    shell = Instance('IPython.core.interactiveshell.InteractiveShellABC')
+    prefilter_manager = Instance('IPython.core.prefilter.PrefilterManager')
     enabled = Bool(True, config=True)
 
-    def __init__(self, parent, config=None):
-        super(PrefilterTransformer, self).__init__(parent, config=config)
+    def __init__(self, shell=None, prefilter_manager=None, config=None):
+        super(PrefilterTransformer, self).__init__(
+            shell=shell, prefilter_manager=prefilter_manager, config=config
+        )
         self.prefilter_manager.register_transformer(self)
-
-    @auto_attr
-    def shell(self):
-        return Component.get_instances(
-            root=self.root,
-            klass='IPython.core.iplib.InteractiveShell')[0]
-
-    @auto_attr
-    def prefilter_manager(self):
-        return PrefilterManager.get_instances(root=self.root)[0]
 
     def transform(self, line, continue_prompt):
         """Transform a line, returning the new one."""
@@ -490,7 +482,7 @@ class AssignSystemTransformer(PrefilterTransformer):
         if m is not None:
             cmd = m.group('cmd')
             lhs = m.group('lhs')
-            expr = make_quoted_expr("sc -l =%s" % cmd)
+            expr = make_quoted_expr("sc =%s" % cmd)
             new_line = '%s = get_ipython().magic(%s)' % (lhs, expr)
             return new_line
         return line
@@ -561,27 +553,19 @@ class IPyPromptTransformer(PrefilterTransformer):
 #-----------------------------------------------------------------------------
 
 
-class PrefilterChecker(Component):
+class PrefilterChecker(Configurable):
     """Inspect an input line and return a handler for that line."""
 
     priority = Int(100, config=True)
-    shell = Any
-    prefilter_manager = Any
+    shell = Instance('IPython.core.interactiveshell.InteractiveShellABC')
+    prefilter_manager = Instance('IPython.core.prefilter.PrefilterManager')
     enabled = Bool(True, config=True)
 
-    def __init__(self, parent, config=None):
-        super(PrefilterChecker, self).__init__(parent, config=config)
+    def __init__(self, shell=None, prefilter_manager=None, config=None):
+        super(PrefilterChecker, self).__init__(
+            shell=shell, prefilter_manager=prefilter_manager, config=config
+        )
         self.prefilter_manager.register_checker(self)
-
-    @auto_attr
-    def shell(self):
-        return Component.get_instances(
-            root=self.root,
-            klass='IPython.core.iplib.InteractiveShell')[0]
-
-    @auto_attr
-    def prefilter_manager(self):
-        return PrefilterManager.get_instances(root=self.root)[0]
 
     def check(self, line_info):
         """Inspect line_info and return a handler instance or None."""
@@ -709,16 +693,12 @@ class AliasChecker(PrefilterChecker):
 
     priority = Int(800, config=True)
 
-    @auto_attr
-    def alias_manager(self):
-        return AliasManager.get_instances(root=self.root)[0]
-
     def check(self, line_info):
         "Check if the initital identifier on the line is an alias."
         # Note: aliases can not contain '.'
         head = line_info.ifun.split('.',1)[0]
-        if line_info.ifun not in self.alias_manager \
-               or head not in self.alias_manager \
+        if line_info.ifun not in self.shell.alias_manager \
+               or head not in self.shell.alias_manager \
                or is_shadowed(head, self.shell):
             return None
 
@@ -766,30 +746,22 @@ class AutocallChecker(PrefilterChecker):
 #-----------------------------------------------------------------------------
 
 
-class PrefilterHandler(Component):
+class PrefilterHandler(Configurable):
 
     handler_name = Str('normal')
     esc_strings = List([])
-    shell = Any
-    prefilter_manager = Any
+    shell = Instance('IPython.core.interactiveshell.InteractiveShellABC')
+    prefilter_manager = Instance('IPython.core.prefilter.PrefilterManager')
 
-    def __init__(self, parent, config=None):
-        super(PrefilterHandler, self).__init__(parent, config=config)
+    def __init__(self, shell=None, prefilter_manager=None, config=None):
+        super(PrefilterHandler, self).__init__(
+            shell=shell, prefilter_manager=prefilter_manager, config=config
+        )
         self.prefilter_manager.register_handler(
             self.handler_name,
             self,
             self.esc_strings
         )
-
-    @auto_attr
-    def shell(self):
-        return Component.get_instances(
-            root=self.root,
-            klass='IPython.core.iplib.InteractiveShell')[0]
-
-    @auto_attr
-    def prefilter_manager(self):
-        return PrefilterManager.get_instances(root=self.root)[0]
 
     def handle(self, line_info):
         # print "normal: ", line_info
@@ -816,7 +788,6 @@ class PrefilterHandler(Component):
             ):
             line = ''
 
-        self.shell.log(line, line, continue_prompt)
         return line
 
     def __str__(self):
@@ -827,19 +798,14 @@ class AliasHandler(PrefilterHandler):
 
     handler_name = Str('alias')
 
-    @auto_attr
-    def alias_manager(self):
-        return AliasManager.get_instances(root=self.root)[0]
-
     def handle(self, line_info):
         """Handle alias input lines. """
-        transformed = self.alias_manager.expand_aliases(line_info.ifun,line_info.the_rest)
+        transformed = self.shell.alias_manager.expand_aliases(line_info.ifun,line_info.the_rest)
         # pre is needed, because it carries the leading whitespace.  Otherwise
         # aliases won't work in indented sections.
         line_out = '%sget_ipython().system(%s)' % (line_info.pre_whitespace,
                                          make_quoted_expr(transformed))
         
-        self.shell.log(line_info.line, line_out, line_info.continue_prompt)
         return line_out
 
 
@@ -868,8 +834,6 @@ class ShellEscapeHandler(PrefilterHandler):
             cmd = line.lstrip().lstrip(ESC_SHELL)
             line_out = '%sget_ipython().system(%s)' % (line_info.pre_whitespace,
                                              make_quoted_expr(cmd))
-        # update cache/log and return
-        self.shell.log(line, line_out, line_info.continue_prompt)
         return line_out
 
 
@@ -884,7 +848,6 @@ class MagicHandler(PrefilterHandler):
         the_rest = line_info.the_rest
         cmd = '%sget_ipython().magic(%s)' % (line_info.pre_whitespace,
                                    make_quoted_expr(ifun + " " + the_rest))
-        self.shell.log(line_info.line, cmd, line_info.continue_prompt)
         return cmd
 
 
@@ -894,7 +857,7 @@ class AutoHandler(PrefilterHandler):
     esc_strings = List([ESC_PAREN, ESC_QUOTE, ESC_QUOTE2])
 
     def handle(self, line_info):
-        """Hande lines which can be auto-executed, quoting if requested."""
+        """Handle lines which can be auto-executed, quoting if requested."""
         line    = line_info.line
         ifun    = line_info.ifun
         the_rest = line_info.the_rest
@@ -905,7 +868,6 @@ class AutoHandler(PrefilterHandler):
 
         # This should only be active for single-line input!
         if continue_prompt:
-            self.shell.log(line,line,continue_prompt)
             return line
 
         force_auto = isinstance(obj, IPyAutocall)
@@ -944,19 +906,8 @@ class AutoHandler(PrefilterHandler):
                     newcmd = '%s(%s)' % (ifun.rstrip(), the_rest)
 
         if auto_rewrite:
-            rw = self.shell.outputcache.prompt1.auto_rewrite() + newcmd
+            self.shell.auto_rewrite_input(newcmd)
             
-            try:
-                # plain ascii works better w/ pyreadline, on some machines, so
-                # we use it and only print uncolored rewrite if we have unicode
-                rw = str(rw)
-                print >>Term.cout, rw
-            except UnicodeEncodeError:
-                print "-------------->" + newcmd
-            
-        # log what is now valid Python, not the actual user input (without the
-        # final newline)
-        self.shell.log(line,newcmd,continue_prompt)
         return newcmd
 
 
@@ -983,19 +934,17 @@ class HelpHandler(PrefilterHandler):
                 line = line[1:]
             elif line[-1]==ESC_HELP:
                 line = line[:-1]
-            self.shell.log(line, '#?'+line, line_info.continue_prompt)
             if line:
                 #print 'line:<%r>' % line  # dbg
                 self.shell.magic_pinfo(line)
             else:
-                page(self.shell.usage, screen_lines=self.shell.usable_screen_length)
+                self.shell.show_usage()
             return '' # Empty string is needed here!
         except:
             raise
             # Pass any other exceptions through to the normal handler
             return normal_handler.handle(line_info)
         else:
-            raise
             # If the code compiles ok, we should handle it normally
             return normal_handler.handle(line_info)
 

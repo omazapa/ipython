@@ -16,8 +16,8 @@
 
 import new
 
-from IPython.core.component import Component
-from IPython.utils.traitlets import Bool, Any
+from IPython.core.plugin import Plugin
+from IPython.utils.traitlets import Bool, Any, Instance
 from IPython.utils.autoattr import auto_attr
 from IPython.testing import decorators as testdec
 
@@ -31,27 +31,18 @@ Use activate() on a MultiEngineClient object to activate it for magics.
 """
 
 
-class ParalleMagicComponent(Component):
+class ParalleMagic(Plugin):
     """A component to manage the %result, %px and %autopx magics."""
 
     active_multiengine_client = Any()
     verbose = Bool(False, config=True)
+    shell = Instance('IPython.core.interactiveshell.InteractiveShellABC')
 
-    def __init__(self, parent, name=None, config=None):
-        super(ParalleMagicComponent, self).__init__(parent, name=name, config=config)
+    def __init__(self, shell=None, config=None):
+        super(ParalleMagic, self).__init__(shell=shell, config=config)
         self._define_magics()
         # A flag showing if autopx is activated or not
         self.autopx = False
-
-    # Access other components like this rather than by a regular attribute.
-    # This won't lookup the InteractiveShell object until it is used and
-    # then it is cached.  This is both efficient and couples this class 
-    # more loosely to InteractiveShell.
-    @auto_attr
-    def shell(self):
-        return Component.get_instances(
-            root=self.root,
-            klass='IPython.core.iplib.InteractiveShell')[0]
 
     def _define_magics(self):
         """Define the magic functions."""
@@ -146,29 +137,30 @@ class ParalleMagicComponent(Component):
             self._enable_autopx()
 
     def _enable_autopx(self):
-        """Enable %autopx mode by saving the original runsource and installing 
-        pxrunsource.
+        """Enable %autopx mode by saving the original run_source and installing 
+        pxrun_source.
         """
         if self.active_multiengine_client is None:
             print NO_ACTIVE_MULTIENGINE_CLIENT
             return
 
-        self._original_runsource = self.shell.runsource
-        self.shell.runsource = new.instancemethod(
-            self.pxrunsource, self.shell, self.shell.__class__
+        self._original_run_source = self.shell.run_source
+        self.shell.run_source = new.instancemethod(
+            self.pxrun_source, self.shell, self.shell.__class__
         )
         self.autopx = True
         print "%autopx enabled"
     
     def _disable_autopx(self):
-        """Disable %autopx by restoring the original InteractiveShell.runsource."""
+        """Disable %autopx by restoring the original InteractiveShell.run_source.
+        """
         if self.autopx:
-            self.shell.runsource = self._original_runsource
+            self.shell.run_source = self._original_run_source
             self.autopx = False
             print "%autopx disabled"
 
-    def pxrunsource(self, ipself, source, filename="<input>", symbol="single"):
-        """A parallel replacement for InteractiveShell.runsource."""
+    def pxrun_source(self, ipself, source, filename="<input>", symbol="single"):
+        """A parallel replacement for InteractiveShell.run_source."""
 
         try:
             code = ipself.compile(source, filename, symbol)
@@ -204,6 +196,7 @@ def load_ipython_extension(ip):
     """Load the extension in IPython."""
     global _loaded
     if not _loaded:
-        prd = ParalleMagicComponent(ip, name='parallel_magic')
+        plugin = ParalleMagic(shell=ip, config=ip.config)
+        ip.plugin_manager.register_plugin('parallel_magic', plugin)
         _loaded = True
 

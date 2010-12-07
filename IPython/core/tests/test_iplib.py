@@ -1,4 +1,4 @@
-"""Tests for the key iplib module, where the main ipython class is defined.
+"""Tests for the key interactiveshell module, where the main ipython class is defined.
 """
 #-----------------------------------------------------------------------------
 # Module imports
@@ -60,7 +60,7 @@ def test_reset():
 
 
 # Tests for reporting of exceptions in various modes, handling of SystemExit,
-# and %tb functionality.  This is really a mix of testing ultraTB and iplib.
+# and %tb functionality.  This is really a mix of testing ultraTB and interactiveshell.
 
 def doctest_tb_plain():
     """
@@ -92,8 +92,6 @@ ZeroDivisionError                         Traceback (most recent call last)
      30         mode = 'div'
      31 
 ---> 32     bar(mode)
-     33 
-     34 
 <BLANKLINE>
 ... in bar(mode)
      14     "bar"
@@ -128,8 +126,6 @@ ZeroDivisionError                         Traceback (most recent call last)
 ---> 32     bar(mode)
         global bar = <function bar at ...>
         global mode = 'div'
-     33 
-     34 
 <BLANKLINE>
 ... in bar(mode='div')
      14     "bar"
@@ -186,8 +182,6 @@ SystemExit                                Traceback (most recent call last)
      30         mode = 'div'
      31 
 ---> 32     bar(mode)
-     33 
-     34 
 <BLANKLINE>
 ...bar(mode)
      20         except:
@@ -218,8 +212,6 @@ SystemExit                                Traceback (most recent call last)
 ---> 32     bar(mode)
         global bar = <function bar at ...>
         global mode = 'exit'
-     33 
-     34 
 <BLANKLINE>
 ... in bar(mode='exit')
      20         except:
@@ -243,3 +235,37 @@ SystemExit                                Traceback (most recent call last)
 <BLANKLINE>
 SystemExit: (2, 'Mode = exit')
     """
+
+
+def test_runlines():
+    import textwrap
+    ip.runlines(['a = 10', 'a+=1'])
+    ip.runlines('assert a == 11\nassert 1')
+
+    nt.assert_equals(ip.user_ns['a'], 11)
+    complex = textwrap.dedent("""
+    if 1:
+        print "hello"
+        if 1:
+            print "world"
+        
+    if 2:
+        print "foo"
+
+    if 3:
+        print "bar"
+
+    if 4:
+        print "bar"
+    
+    """)
+    # Simply verifies that this kind of input is run
+    ip.runlines(complex)
+    
+
+def test_db():
+    """Test the internal database used for variable persistence."""
+    ip.db['__unittest_'] = 12
+    nt.assert_equals(ip.db['__unittest_'], 12)
+    del ip.db['__unittest_']
+    assert '__unittest_' not in ip.db

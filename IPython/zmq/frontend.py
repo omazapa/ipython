@@ -30,6 +30,13 @@ import rlcompleter
 import time
 
 
+# our own
+import zmq
+import session
+import completer
+from IPython.utils.localinterfaces import LOCALHOST
+
+
 #-----------------------------------------------------------------------------
 # Imports from ipython
 #-----------------------------------------------------------------------------
@@ -363,6 +370,7 @@ class Frontend(object):
            self.backgrounded += 1
            return
 
+<<<<<<< HEAD
         # For foreground jobs, wait for reply
        while True:
            rep = self.recv_reply()
@@ -374,6 +382,17 @@ class Frontend(object):
        else:
            # We exited without hearing back from the kernel!
            print >> sys.stderr, 'ERROR!!! kernel never got back to us!!!'
+=======
+def main():
+    # Defaults
+    #ip = '192.168.2.109'
+    ip = LOCALHOST
+    #ip = '99.146.222.252'
+    port_base = 5575
+    connection = ('tcp://%s' % ip) + ':%i'
+    req_conn = connection % port_base
+    sub_conn = connection % (port_base+1)
+>>>>>>> f0963426817946b1409d15532340f6f3effa0f17
     
    def send_noninteractive_request(self,code):
        """ this method was designed to send request code in non interactive mode.

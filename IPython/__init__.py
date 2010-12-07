@@ -6,10 +6,14 @@ IPython.
 IPython is a set of tools for interactive and exploratory computing in Python.
 """
 #-----------------------------------------------------------------------------
-#  Copyright (C) 2008-2009  The IPython Development Team
+#  Copyright (c) 2008-2010, IPython Development Team.
+#  Copyright (c) 2001-2007, Fernando Perez <fernando.perez@colorado.edu>
+#  Copyright (c) 2001, Janko Hauser <jhauser@zscout.de>
+#  Copyright (c) 2001, Nathaniel Gray <n8gray@caltech.edu>
 #
-#  Distributed under the terms of the BSD License.  The full license is in
-#  the file COPYING, distributed as part of this software.
+#  Distributed under the terms of the Modified BSD License.
+#
+#  The full license is in the file COPYING.txt, distributed with this software.
 #-----------------------------------------------------------------------------
 
 #-----------------------------------------------------------------------------
@@ -24,8 +28,9 @@ import sys
 # Setup everything
 #-----------------------------------------------------------------------------
 
-if sys.version[0:3] < '2.5':
-    raise ImportError('Python Version 2.5 or above is required for IPython.')
+# Don't forget to also update setup.py when this changes!
+if sys.version[0:3] < '2.6':
+    raise ImportError('Python Version 2.6 or above is required for IPython.')
 
 
 # Make it easy to import extensions - they are always directly on pythonpath.
@@ -40,27 +45,15 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "extensions"))
 from .config.loader import Config
 from .core import release
 from .core.application import Application
-from .core.ipapp import IPythonApp
-from .core.embed import embed
+from .frontend.terminal.embed import embed
 from .core.error import TryNext
-from .core.iplib import InteractiveShell
+from .core.interactiveshell import InteractiveShell
 from .testing import test
-
-from .lib import (
-    enable_wx, disable_wx,
-    enable_gtk, disable_gtk,
-    enable_qt4, disable_qt4,
-    enable_tk, disable_tk,
-    set_inputhook, clear_inputhook,
-    current_gui, spin,
-    appstart_qt4, appstart_wx,
-    appstart_gtk, appstart_tk
-)
+from .utils.sysinfo import sys_info
 
 # Release data
 __author__ = ''
-for author, email in release.authors.values():
+for author, email in release.authors.itervalues():
     __author__ += author + ' <' + email + '>\n'
 __license__  = release.license
 __version__  = release.version
-__revision__ = release.revision

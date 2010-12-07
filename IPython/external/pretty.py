@@ -101,7 +101,8 @@
                 Portions (c) 2009 by Robert Kern.
     :license: BSD License.
 """
-import __future__
+from __future__ import with_statement
+from contextlib import contextmanager
 import sys
 import types
 import re
@@ -138,12 +139,6 @@ def pprint(obj, verbose=False, max_width=79, newline='\n'):
     sys.stdout.write(newline)
     sys.stdout.flush()
 
-
-# add python2.5 context managers if we have the with statement feature
-if hasattr(__future__, 'with_statement'): exec '''
-from __future__ import with_statement
-from contextlib import contextmanager
-
 class _PrettyPrinterBase(object):
 
     @contextmanager
@@ -164,16 +159,6 @@ class _PrettyPrinterBase(object):
                 yield
         finally:
             self.end_group(indent, close)
-'''
-else:
-    class _PrettyPrinterBase(object):
-
-        def _unsupported(self, *a, **kw):
-            """unsupported operation"""
-            raise RuntimeError('not available in this python version')
-        group = indent = _unsupported
-        del _unsupported
-
 
 class PrettyPrinter(_PrettyPrinterBase):
     """
@@ -321,10 +306,21 @@ class RepresentationPrinter(PrettyPrinter):
     verbose mode.
     """
 
-    def __init__(self, output, verbose=False, max_width=79, newline='\n'):
+    def __init__(self, output, verbose=False, max_width=79, newline='\n',
+        singleton_pprinters=None, type_pprinters=None, deferred_pprinters=None):
+
         PrettyPrinter.__init__(self, output, max_width, newline)
         self.verbose = verbose
         self.stack = []
+        if singleton_pprinters is None:
+            singleton_pprinters = _singleton_pprinters.copy()
+        self.singleton_pprinters = singleton_pprinters
+        if type_pprinters is None:
+            type_pprinters = _type_pprinters.copy()
+        self.type_pprinters = type_pprinters
+        if deferred_pprinters is None:
+            deferred_pprinters = _deferred_type_pprinters.copy()
+        self.deferred_pprinters = deferred_pprinters
 
     def pretty(self, obj):
         """Pretty print the given object."""
@@ -337,14 +333,14 @@ class RepresentationPrinter(PrettyPrinter):
             if hasattr(obj_class, '__pretty__'):
                 return obj_class.__pretty__(obj, self, cycle)
             try:
-                printer = _singleton_pprinters[obj_id]
+                printer = self.singleton_pprinters[obj_id]
             except (TypeError, KeyError):
                 pass
             else:
                 return printer(obj, self, cycle)
             for cls in _get_mro(obj_class):
-                if cls in _type_pprinters:
-                    return _type_pprinters[cls](obj, self, cycle)
+                if cls in self.type_pprinters:
+                    return self.type_pprinters[cls](obj, self, cycle)
                 else:
                     printer = self._in_deferred_types(cls)
                     if printer is not None:
@@ -366,12 +362,11 @@ class RepresentationPrinter(PrettyPrinter):
         name = getattr(cls, '__name__', None)
         key = (mod, name)
         printer = None
-        if key in _deferred_type_pprinters:
+        if key in self.deferred_pprinters:
             # Move the printer over to the regular registry.
-            printer = _deferred_type_pprinters.pop(key)
-            _type_pprinters[cls] = printer
+            printer = self.deferred_pprinters.pop(key)
+            self.type_pprinters[cls] = printer
         return printer
-
 
 
 class Printable(object):

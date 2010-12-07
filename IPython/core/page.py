@@ -36,8 +36,8 @@ from IPython.core import ipapi
 from IPython.core.error import TryNext
 from IPython.utils.cursesimport import use_curses
 from IPython.utils.data import chop
-from IPython.utils.io import Term
-from IPython.utils.process import xsys
+import IPython.utils.io
+from IPython.utils.process import system
 from IPython.utils.terminal import get_terminal_size
 
 
@@ -56,18 +56,18 @@ def page_dumb(strng, start=0, screen_lines=25):
     out_ln  = strng.splitlines()[start:]
     screens = chop(out_ln,screen_lines-1)
     if len(screens) == 1:
-        print >>Term.cout, os.linesep.join(screens[0])
+        print >>IPython.utils.io.Term.cout, os.linesep.join(screens[0])
     else:
         last_escape = ""
         for scr in screens[0:-1]:
             hunk = os.linesep.join(scr)
-            print >>Term.cout, last_escape + hunk
+            print >>IPython.utils.io.Term.cout, last_escape + hunk
             if not page_more():
                 return
             esc_list = esc_re.findall(hunk)
             if len(esc_list) > 0:
                 last_escape = esc_list[-1]
-        print >>Term.cout, last_escape + os.linesep.join(screens[-1])
+        print >>IPython.utils.io.Term.cout, last_escape + os.linesep.join(screens[-1])
 
 
 def page(strng, start=0, screen_lines=0, pager_cmd=None):
@@ -141,9 +141,29 @@ def page(strng, start=0, screen_lines=0, pager_cmd=None):
             # unconditionally reset it every time.  It's cheaper than making
             # the checks.
             term_flags = termios.tcgetattr(sys.stdout)
+
+            # Curses modifies the stdout buffer size by default, which messes
+            # up Python's normal stdout buffering.  This would manifest itself
+            # to IPython users as delayed printing on stdout after having used
+            # the pager.
+            #
+            # We can prevent this by manually setting the NCURSES_NO_SETBUF
+            # environment variable.  For more details, see:
+            # http://bugs.python.org/issue10144
+            NCURSES_NO_SETBUF = os.environ.get('NCURSES_NO_SETBUF', None)
+            os.environ['NCURSES_NO_SETBUF'] = ''
+            
+            # Proceed with curses initialization
             scr = curses.initscr()
             screen_lines_real,screen_cols = scr.getmaxyx()
             curses.endwin()
+
+            # Restore environment
+            if NCURSES_NO_SETBUF is None:
+                del os.environ['NCURSES_NO_SETBUF']
+            else:
+                os.environ['NCURSES_NO_SETBUF'] = NCURSES_NO_SETBUF
+                
             # Restore terminal state in case endwin() didn't.
             termios.tcsetattr(sys.stdout,termios.TCSANOW,term_flags)
             # Now we have what we needed: the screen size in rows/columns
@@ -156,7 +176,7 @@ def page(strng, start=0, screen_lines=0, pager_cmd=None):
     #print 'numlines',numlines,'screenlines',screen_lines  # dbg
     if numlines <= screen_lines :
         #print '*** normal print'  # dbg
-        print >>Term.cout, str_toprint
+        print >>IPython.utils.io.Term.cout, str_toprint
     else:
         # Try to open pager and default to internal one if that fails.
         # All failure modes are tagged as 'retval=1', to match the return
@@ -210,7 +230,7 @@ def page_file(fname, start=0, pager_cmd=None):
     try:
         if os.environ['TERM'] in ['emacs','dumb']:
             raise EnvironmentError
-        xsys(pager_cmd + ' ' + fname)
+        system(pager_cmd + ' ' + fname)
     except:
         try:
             if start > 0:
@@ -262,13 +282,13 @@ if os.name == 'nt' and os.environ.get('TERM','dumb') != 'emacs':
 
         @return:    True if need print more lines, False if quit
         """
-        Term.cout.write('---Return to continue, q to quit--- ')
+        IPython.utils.io.Term.cout.write('---Return to continue, q to quit--- ')
         ans = msvcrt.getch()
         if ans in ("q", "Q"):
             result = False
         else:
             result = True
-        Term.cout.write("\b"*37 + " "*37 + "\b"*37)
+        IPython.utils.io.Term.cout.write("\b"*37 + " "*37 + "\b"*37)
         return result
 else:
     def page_more():

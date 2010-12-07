@@ -83,6 +83,23 @@ def doctest_run_builtins():
        ....: 
     """
 
+def doctest_reset_del():
+    """Test that resetting doesn't cause errors in __del__ methods.
+
+    In [2]: class A(object):
+       ...:     def __del__(self):
+       ...:         print str("Hi")
+       ...: 
+
+    In [3]: a = A()
+
+    In [4]: get_ipython().reset()
+    Hi
+
+    In [5]: 1+1
+    Out[5]: 2
+    """
+
 # For some tests, it will be handy to organize them in a class with a common
 # setup that makes a temp file
 
@@ -122,7 +139,7 @@ class TestMagicRunPass(tt.TempFileMixin):
         """Test that prompts correctly generate after %run"""
         self.run_tmpfile()
         _ip = get_ipython()
-        p2 = str(_ip.outputcache.prompt2).strip()
+        p2 = str(_ip.displayhook.prompt2).strip()
         nt.assert_equals(p2[:3], '...')
 
 

@@ -56,19 +56,7 @@ from types import (
     InstanceType, ClassType, FunctionType,
     ListType, TupleType
 )
-
-def import_item(name):
-    """Import and return bar given the string foo.bar."""
-    package = '.'.join(name.split('.')[0:-1])
-    obj = name.split('.')[-1]
-    execString = 'from %s import %s' % (package, obj)
-    try:
-        exec execString
-    except SyntaxError:
-        raise ImportError("Invalid class specification: %s" % name)
-    exec 'temp = %s' % obj
-    return temp
-
+from .importstring import import_item
 
 ClassTypes = (ClassType, type)
 
@@ -230,8 +218,7 @@ class TraitType(object):
 
     def get_default_value(self):
         """Create a new instance of the default value."""
-        dv = self.default_value
-        return dv
+        return self.default_value
 
     def instance_init(self, obj):
         """This is called by :meth:`HasTraits.__new__` to finish init'ing.
@@ -261,9 +248,21 @@ class TraitType(object):
         default values must be delayed until the parent :class:`HasTraits`
         class has been instantiated.
         """
-        dv = self.get_default_value()
-        newdv = self._validate(obj, dv)
-        obj._trait_values[self.name] = newdv
+        # Check for a deferred initializer defined in the same class as the
+        # trait declaration or above.
+        mro = type(obj).mro()
+        meth_name = '_%s_default' % self.name
+        for cls in mro[:mro.index(self.this_class)+1]:
+            if meth_name in cls.__dict__:
+                break
+        else:
+            # We didn't find one. Do static initialization.
+            dv = self.get_default_value()
+            newdv = self._validate(obj, dv)
+            obj._trait_values[self.name] = newdv
+            return
+        # Complete the dynamic initialization.
+        self.dynamic_initializer = cls.__dict__[meth_name]
 
     def __get__(self, obj, cls=None):
         """Get the value of the trait by self.name for the instance.
@@ -278,7 +277,19 @@ class TraitType(object):
         else:
             try:
                 value = obj._trait_values[self.name]
-            except:
+            except KeyError:
+                # Check for a dynamic initializer.
+                if hasattr(self, 'dynamic_initializer'):
+                    value = self.dynamic_initializer(obj)
+                    # FIXME: Do we really validate here?
+                    value = self._validate(obj, value)
+                    obj._trait_values[self.name] = value
+                    return value
+                else:
+                    raise TraitError('Unexpected error in TraitType: '
+                        'both default value and dynamic initializer are '
+                        'absent.')
+            except Exception:
                 # HasTraits should call set_default_value to populate
                 # this.  So this should never be reached.
                 raise TraitError('Unexpected error in TraitType: '
@@ -306,6 +317,11 @@ class TraitType(object):
             return self.value_for(value)
         else:
             return value
+
+    def set_dynamic_initializer(self, method):
+        """ Set the dynamic initializer method, if any.
+        """
+        self.dynamic_initializer = method
 
     def info(self):
         return self.info_text
@@ -373,14 +389,14 @@ class HasTraits(object):
 
     __metaclass__ = MetaHasTraits
 
-    def __new__(cls, *args, **kw):
+    def __new__(cls, **kw):
         # This is needed because in Python 2.6 object.__new__ only accepts
         # the cls argument.
         new_meth = super(HasTraits, cls).__new__
         if new_meth is object.__new__:
             inst = new_meth(cls)
         else:
-            inst = new_meth(cls, *args, **kw)
+            inst = new_meth(cls, **kw)
         inst._trait_values = {}
         inst._trait_notifiers = {}
         # Here we tell all the TraitType instances to set their default
@@ -399,9 +415,12 @@ class HasTraits(object):
 
         return inst
 
-    # def __init__(self):
-    #     self._trait_values = {}
-    #     self._trait_notifiers = {}
+    def __init__(self, **kw):
+        # Allow trait values to be set using keyword arguments.
+        # We need to use setattr for this to trigger validation and
+        # notifications.
+        for key, value in kw.iteritems():
+            setattr(self, key, value)
 
     def _notify_trait(self, name, old_value, new_value):
 
@@ -798,7 +817,6 @@ class Any(TraitType):
 class Int(TraitType):
     """A integer trait."""
 
-    evaluate = int
     default_value = 0
     info_text = 'an integer'
 
@@ -820,7 +838,6 @@ class CInt(Int):
 class Long(TraitType):
     """A long integer trait."""
 
-    evaluate = long
     default_value = 0L
     info_text = 'a long'
 
@@ -845,7 +862,6 @@ class CLong(Long):
 class Float(TraitType):
     """A float trait."""
 
-    evaluate = float
     default_value = 0.0
     info_text = 'a float'
 
@@ -869,7 +885,6 @@ class CFloat(Float):
 class Complex(TraitType):
     """A trait for complex numbers."""
 
-    evaluate = complex
     default_value = 0.0 + 0.0j
     info_text = 'a complex number'
 
@@ -894,7 +909,6 @@ class CComplex(Complex):
 class Str(TraitType):
     """A trait for strings."""
 
-    evaluate = lambda x: x
     default_value = ''
     info_text = 'a string'
 
@@ -920,7 +934,6 @@ class CStr(Str):
 class Unicode(TraitType):
     """A trait for unicode strings."""
 
-    evaluate = unicode
     default_value = u''
     info_text = 'a unicode string'
 
@@ -944,7 +957,7 @@ class CUnicode(Unicode):
 
 class Bool(TraitType):
     """A boolean (True, False) trait."""
-    evaluate = bool
+
     default_value = False
     info_text = 'a boolean'
 
@@ -1023,3 +1036,44 @@ class List(Instance):
 
         super(List,self).__init__(klass=list, args=args, 
                                   allow_none=allow_none, **metadata)
+
+
+class Dict(Instance):
+    """An instance of a Python dict."""
+
+    def __init__(self, default_value=None, allow_none=True, **metadata):
+        """Create a dict trait type from a dict.
+
+        The default value is created by doing ``dict(default_value)``, 
+        which creates a copy of the ``default_value``.
+        """
+        if default_value is None:
+            args = ((),)
+        elif isinstance(default_value, dict):
+            args = (default_value,)
+        elif isinstance(default_value, SequenceTypes):
+            args = (default_value,)
+        else:
+            raise TypeError('default value of Dict was %s' % default_value)
+
+        super(Dict,self).__init__(klass=dict, args=args, 
+                                  allow_none=allow_none, **metadata)
+
+
+class TCPAddress(TraitType):
+    """A trait for an (ip, port) tuple.
+
+    This allows for both IPv4 IP addresses as well as hostnames.
+    """
+
+    default_value = ('127.0.0.1', 0)
+    info_text = 'an (ip, port) tuple'
+
+    def validate(self, obj, value):
+        if isinstance(value, tuple):
+            if len(value) == 2:
+                if isinstance(value[0], basestring) and isinstance(value[1], int):
+                    port = value[1]
+                    if port >= 0 and port <= 65535:
+                        return value
+        self.error(obj, value)
