@@ -83,7 +83,7 @@ class ColorFormatter(logging.Formatter):
             record.levelname   = "LEVEL: " + record.levelname
             record.filename    = "FILE: " + record.filename 
             record.lineno      = "LINE: " + str(record.lineno)
-            record.msg         = "MESSAGE: " + record.msg
+            record.msg         = "MESSAGE: " + str(record.msg)
             record.name        = "LOGGER: " + record.name
             record.module      = "MODULE: " + record.module
             record.pathname    = "PATH: " + record.pathname
