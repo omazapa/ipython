@@ -80,18 +80,18 @@ class ColorFormatter(logging.Formatter):
             record.processName   = processName_color   +  str(record.processName)
             record.thread        = thread_color        +  str(record.thread)
         else:
-            record.levelname   = "LEVEL: "
-            record.filename    = "FILE: " 
-            record.lineno      = "LINE: " 
-            record.msg         = "MESSAGE: " 
-            record.name        = "LOGGER: "
-            record.module      = "MODULE: "
-            record.pathname    = "PATH: "
-            record.funcName    = "FUNCTION NAME: "
-            record.process     = "PROCESS: "
-            record.processName = "PROCESS NAME: "
-            record.thread      = "THREAD: "
-            record.threadName  = "THREAD NAME: "  
+            record.levelname   = "LEVEL: " + record.levelname
+            record.filename    = "FILE: " + record.filename 
+            record.lineno      = "LINE: " + str(record.lineno)
+            record.msg         = "MESSAGE: " + record.msg
+            record.name        = "LOGGER: " + record.name
+            record.module      = "MODULE: " + record.module
+            record.pathname    = "PATH: " + record.pathname
+            record.funcName    = "FUNCTION NAME: " + record.funcName
+            record.process     = "PROCESS: " + str(record.process)
+            record.processName = "PROCESS NAME: " + record.processName
+            record.thread      = "THREAD: " + str(record.thread)
+            record.threadName  = "THREAD NAME: " + record.threadName 
         return logging.Formatter.format(self, record)
         
 IpStreamHandler = logging.StreamHandler()
