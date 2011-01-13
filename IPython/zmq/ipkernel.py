@@ -269,7 +269,7 @@ class Kernel(Configurable):
 
         # Send the reply.
         reply_msg = self.session.msg(u'execute_reply', reply_content, parent)
-        IpLogging.debug(reply_msg)
+        #IpLogging.debug(reply_msg)
 
         # Flush output before sending the reply.
         sys.stdout.flush()
@@ -348,11 +348,11 @@ class Kernel(Configurable):
                 assert self.reply_socket.rcvmore(), \
                        "Unexpected missing message part."
                 msg = self.reply_socket.recv_json()
-            IpLogging.debug("Aborting:\n", Message(msg))
+            #IpLogging.debug("Aborting:\n", Message(msg))
             msg_type = msg['msg_type']
             reply_type = msg_type.split('_')[0] + '_reply'
             reply_msg = self.session.msg(reply_type, {'status' : 'aborted'}, msg)
-            IpLogging.debug(reply_msg)
+            #IpLogging.debug(reply_msg)
             self.reply_socket.send(ident,zmq.SNDMORE)
             self.reply_socket.send_json(reply_msg)
             # We need to wait a bit for requests to come in. This can probably
@@ -374,8 +374,8 @@ class Kernel(Configurable):
         try:
             value = reply['content']['value']
         except:
-            IpLogging.error("Got bad raw_input reply: ")
-            IpLogging.error(Message(parent))
+            #IpLogging.error("Got bad raw_input reply: ")
+            #IpLogging.error(Message(parent))
             value = ''
         return value
     
@@ -429,7 +429,7 @@ class Kernel(Configurable):
         if self._shutdown_message is not None:
             self.reply_socket.send_json(self._shutdown_message)
             self.pub_socket.send_json(self._shutdown_message)
-            IpLogging.debug(self._shutdown_message)
+            #IpLogging.debug(self._shutdown_message)
             # A very short sleep to give zmq time to flush its message buffers
             # before Python truly shuts down.
             time.sleep(0.01)

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import sys
 import time
 from cStringIO import StringIO
@@ -39,7 +40,7 @@ class OutStream(object):
                 content = {u'name':self.name, u'data':data}
                 msg = self.session.msg(u'stream', content=content,
                                        parent=self.parent_header)
-                io.raw_print(msg)
+                #io.raw_print(msg)
                 self.pub_socket.send_json(msg)
                 
                 self._buffer.close()
