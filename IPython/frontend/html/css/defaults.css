@@ -1,0 +1,18 @@
+body { 
+    font-family:sans-serif; 
+    font-size:10pt;
+    margin:5px;
+}
+pre, p { margin:0px; }
+.cblue { color: blue }
+.ccyan { color: teal }
+.cgreen { color: green }
+.cyellow { color: #990 }
+.cwhite { color: #777 }
+.cred { color: red }
+.cbold { font-weight:bold }
+.hidden { display:none; }
+.clear { clear:both; }
+
+.headers { font-size:60%;}
+.xreq { font-style:italic }
