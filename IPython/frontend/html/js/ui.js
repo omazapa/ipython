@@ -75,9 +75,21 @@ function Message(msg_id, obj) {
     this.num = msg_id == -1?exec_count+1:exec_count
     
     this.outer = $(document.createElement("div")).addClass("message")
+    this.options = $(document.createElement("div")).addClass("options")
+    $(obj).append(this.outer.append(this.options))
+
+   this.close = $(document.createElement("div")).addClass("close")
+   this.options.append(this.close)
+
+   this.minimize = $(document.createElement("div")).addClass("minimize")
+   this.options.append(this.minimize)
+
+   this.message_inside = document.createElement("div")
+
     this.obj = $(document.createElement("div")).addClass("message_inside")
     $(obj).append(this.outer.append(this.obj))
-    
+
+
     this.in_head = $(document.createElement("div")).addClass("input_header")
     this.in_head.html("In [<span class='cbold'>"+this.num+"</span>]:")
     this.obj.append(this.in_head)
@@ -93,17 +105,39 @@ function Message(msg_id, obj) {
     
     this.code = ""
     var thisObj = this
+    this.close.click(function(ev) {
+       thisObj.remove()
+   })
+   this.minimize.click(function(ev) {
+       thisObj.showhide_event()
+   })
     this.obj.click(function(e) {
         thisObj.activate()
         e.stopPropagation()
         e.preventDefault()
     })
 }
+
+Message.prototype.showhide_event = function() {
+   if(this.message_inside.style.display == "" || this.message_inside.style.display == "block") {
+       this.message_inside.style.display = "none"
+       this.minimize.html("<img src='imgs/max.png' alt='maximize' align='right' />")
+   }
+   else {
+       this.message_inside.style.display = "block"
+       this.minimize.html("<img src='imgs/min.png' alt='minimize' align='right' /><br /><hr id='line' />")
+       this.text.focus()
+   }
+}
+
+
 Message.prototype.activate = function () {
     manager.deactivate(this)
     manager.cursor = manager.getOrder(this)
     this.outer.addClass("active")
     this.in_head.html("In [<span class='cbold'>"+(exec_count+1)+"</span>]:")
+    this.close.html("<img src='imgs/close.png' alt='close' align='right' />")
+    this.minimize.html("<img src='imgs/min.png' alt='minimize' align='right' /><br /><hr id='line' />")
     this.text = new InputArea(this)
     $.scrollTo(this.outer)
 }

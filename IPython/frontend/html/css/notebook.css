@@ -141,3 +141,7 @@
 .completer .selected {
     background-color:#CCC;
 }
+
+#line {
+   border: 1px solid #EAEAEA;
+}
